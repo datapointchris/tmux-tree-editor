@@ -7,7 +7,10 @@
 // real id once tmux prints it.
 package tree
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 type Pane struct {
 	ID      string
@@ -44,6 +47,17 @@ type Tree struct {
 
 // IsNew reports whether an id is a placeholder for an item tmux has not made.
 func IsNew(id string) bool { return strings.HasPrefix(id, "+") }
+
+// SessionNumber is the number in a session id such as "$12". tmux hands ids
+// out in ascending order and never reuses one, so it orders sessions by
+// creation; -1 marks an id that is not a live session's.
+func SessionNumber(id string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "$"))
+	if err != nil || !strings.HasPrefix(id, "$") {
+		return -1
+	}
+	return n
+}
 
 func (t Tree) Clone() Tree {
 	out := Tree{Sessions: make([]Session, len(t.Sessions)), Host: t.Host, Home: t.Home}

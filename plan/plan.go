@@ -8,7 +8,8 @@
 // still be live, or the plan refuses rather than guessing.
 //
 // Steps run in a fixed order: renames, then creations, then moves, then
-// reordering, then kills, then removal of the placeholders. tmux destroys a
+// reordering, then kills, then removal of the placeholders, then rebuilding
+// the sessions that must move later in the creation order. tmux destroys a
 // window with its last pane and a session with its last window, so a window
 // or session about to lose everything it holds gets a placeholder first and
 // loses it last. That also keeps break-pane off a window's last pane, where
@@ -65,10 +66,10 @@ func Shown(steps []Step) int {
 }
 
 type differ struct {
-	base, live, want tree.Tree
-	lb, ll, lw       tree.Locations
-	steps, cleanup   []Step
-	holders          int
+	base, live, want      tree.Tree
+	lb, ll, lw            tree.Locations
+	steps, cleanup, final []Step
+	holders               int
 }
 
 func Diff(base, live, want tree.Tree) ([]Step, error) {
@@ -86,7 +87,8 @@ func Diff(base, live, want tree.Tree) ([]Step, error) {
 	d.panes()
 	d.order()
 	d.kills()
-	return append(d.steps, d.cleanup...), nil
+	d.sessionOrder()
+	return append(append(d.steps, d.cleanup...), d.final...), nil
 }
 
 func (d *differ) add(s Step) { d.steps = append(d.steps, s) }
@@ -340,6 +342,100 @@ func (d *differ) order() {
 			}
 			d.add(Step{Say: say, Shown: say != "", Do: reorder("list-panes", "#{pane_id}", "swap-pane", ref(w.ID), pids)})
 		}
+	}
+}
+
+// sessionOrder rebuilds each session that would otherwise sit out of the
+// order want gives it. Sessions are shown in creation order, the order of
+// their ids, and tmux can neither swap nor renumber one, so the only way to
+// move a session later is to recreate it. A new session's id comes after
+// every live one, in the order newSessions creates them. Once one session is
+// rebuilt, every session after it in want is rebuilt too, since a rebuilt
+// session's id is higher than any it passed.
+func (d *differ) sessionOrder() {
+	next := 0
+	for _, s := range d.live.Sessions {
+		next = max(next, tree.SessionNumber(s.ID)+1)
+	}
+	highest, rebuilding, prev := -1, false, ""
+	for _, s := range d.want.Sessions {
+		n := tree.SessionNumber(s.ID)
+		if tree.IsNew(s.ID) {
+			n, next = next, next+1
+		}
+		if !rebuilding && n > highest {
+			highest = n
+		} else {
+			rebuilding = true
+			say := fmt.Sprintf("move session %q to the front", s.Name)
+			if prev != "" {
+				say = fmt.Sprintf("move session %q after %q", s.Name, prev)
+			}
+			d.final = append(d.final, Step{Say: say, Shown: true, Do: rebuild(ref(s.ID), s.Name)})
+		}
+		prev = s.Name
+	}
+}
+
+const rebuildName = "tmux-tree-editor-rebuild"
+
+func lines(out string) []string {
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
+}
+
+// rebuild recreates a session at the end of the creation order, as the
+// status-line session switchers that order by id do it. A fresh session
+// takes the old one's clients first, so none is detached when the old one
+// closes, then its windows by id, in index order, then its name. The
+// windows and their panes keep running; session options and environment
+// set on the old session are not carried.
+func rebuild(id, name string) func(Runner, func(string) string) error {
+	return func(r Runner, resolve func(string) string) error {
+		old := resolve(id)
+		current, err := r.Run("display-message", "-p", "-t", old, "#{window_id}")
+		if err != nil {
+			return err
+		}
+		out, err := r.Run("new-session", "-d", "-s", rebuildName, "-n", placeholderName, "-P", "-F", "#{session_id} #{window_id}")
+		if err != nil {
+			return err
+		}
+		fields := strings.Fields(out)
+		if len(fields) != 2 {
+			return fmt.Errorf("tmux printed %q, expected a session and a window id", out)
+		}
+		fresh, holder := fields[0], fields[1]
+		clients, err := r.Run("list-clients", "-t", old, "-F", "#{client_name}")
+		if err != nil {
+			return err
+		}
+		for _, c := range lines(clients) {
+			if _, err := r.Run("switch-client", "-c", c, "-t", fresh); err != nil {
+				return err
+			}
+		}
+		windows, err := r.Run("list-windows", "-t", old, "-F", "#{window_id}")
+		if err != nil {
+			return err
+		}
+		for _, w := range lines(windows) {
+			if _, err := r.Run("move-window", "-d", "-s", w, "-t", fresh+":"); err != nil {
+				return err
+			}
+		}
+		for _, args := range [][]string{
+			{"kill-window", "-t", holder},
+			{"rename-session", "-t", fresh, name},
+			{"select-window", "-t", current},
+		} {
+			if _, err := r.Run(args...); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 }
 

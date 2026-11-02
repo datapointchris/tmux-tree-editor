@@ -9,6 +9,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -55,10 +56,15 @@ type Model struct {
 	undo   []snapshot
 	col    int
 	cur    [3]int
-	cut    string
-	mode   mode
-	input  textinput.Model
-	steps  []plan.Step
+	// cut holds the ids x cut, in tree order, all of the kind cutKind names.
+	cut     []string
+	cutKind int
+	// selected holds the ids space selected, all of the kind selKind names.
+	selected map[string]bool
+	selKind  int
+	mode     mode
+	input    textinput.Model
+	steps    []plan.Step
 	// closing is set when the plan on screen came from q, so y applies and quits.
 	closing bool
 	staged  int
@@ -89,7 +95,7 @@ func (m *Model) load(t tree.Tree) {
 	m.want = t.Clone()
 	m.killed = map[string]bool{}
 	m.undo = nil
-	m.cut = ""
+	m.clearMarks()
 	m.restage()
 	m.clamp()
 	m.refreshPreview()
@@ -276,12 +282,13 @@ func init() {
 		{[]string{"l", "right"}, "", "the column to the right", func(m *Model) tea.Cmd { m.col = min(m.col+1, panesCol); return nil }},
 		{[]string{"g"}, "", "the first row", func(m *Model) tea.Cmd { m.move(-1 << 20); return nil }},
 		{[]string{"G"}, "", "the last row", func(m *Model) tea.Cmd { m.move(1 << 20); return nil }},
-		{[]string{"x"}, "x cut", "cut the window or pane under the cursor", (*Model).markCut},
-		{[]string{"esc"}, "", "clear the cut", func(m *Model) tea.Cmd { m.cut = ""; return nil }},
+		{[]string{" ", "space"}, "space select", "select or unselect the window or pane under the cursor and move down; x and d then act on every selected one", (*Model).toggleSelect},
+		{[]string{"x"}, "x cut", "cut the window or pane under the cursor, or everything selected", (*Model).markCut},
+		{[]string{"esc"}, "", "clear the cut and the selection", (*Model).clearMarks},
 		{[]string{"p"}, "p paste", "paste after the cursor: a pane in the windows column becomes a window, a window in the panes column joins that window", func(m *Model) tea.Cmd { m.paste(); return nil }},
 		{[]string{"r"}, "r rename", "rename a session or window, or retitle a pane", (*Model).startRename},
 		{[]string{"a"}, "a add", "add a session, window or pane after the cursor", (*Model).startCreate},
-		{[]string{"d"}, "d kill", "mark for killing, or press again to keep", (*Model).toggleKill},
+		{[]string{"d"}, "d kill", "mark for killing, or press again to keep; with a selection, every selected one", (*Model).toggleKill},
 		{[]string{"J"}, "J/K shift", "shift down within its column", func(m *Model) tea.Cmd { m.shift(1); return nil }},
 		{[]string{"K"}, "", "shift up within its column", func(m *Model) tea.Cmd { m.shift(-1); return nil }},
 		{[]string{"u"}, "u undo", "undo the last edit", (*Model).undoLast},
@@ -302,23 +309,87 @@ func (m *Model) move(delta int) {
 	}
 }
 
+var kinds = [3]string{"session", "window", "pane"}
+
+// toggleSelect selects or unselects the window or pane under the cursor and
+// moves down, as space does in yazi. A selection holds one kind, so selecting
+// a pane drops a selection of windows and the other way round.
+func (m *Model) toggleSelect() tea.Cmd {
+	if m.col == sessionsCol {
+		m.status = "sessions do not move; select their windows"
+		return nil
+	}
+	id := m.currentID()
+	if id == "" {
+		return nil
+	}
+	if m.selKind != m.col {
+		m.selected, m.selKind = map[string]bool{}, m.col
+	}
+	if m.selected[id] {
+		delete(m.selected, id)
+	} else {
+		m.selected[id] = true
+	}
+	m.move(1)
+	return nil
+}
+
+func (m *Model) clearMarks() tea.Cmd {
+	m.cut, m.selected = nil, map[string]bool{}
+	return nil
+}
+
+// marked lists the selection in the order the tree holds it, or the item
+// under the cursor when nothing is selected.
+func (m *Model) marked() (ids []string, kind int) {
+	if len(m.selected) == 0 {
+		if m.col == sessionsCol {
+			return nil, m.col
+		}
+		if id := m.currentID(); id != "" {
+			return []string{id}, m.col
+		}
+		return nil, m.col
+	}
+	for _, s := range m.want.Sessions {
+		for _, w := range s.Windows {
+			if m.selKind == windowsCol && m.selected[w.ID] {
+				ids = append(ids, w.ID)
+			}
+			for _, p := range w.Panes {
+				if m.selKind == panesCol && m.selected[p.ID] {
+					ids = append(ids, p.ID)
+				}
+			}
+		}
+	}
+	return ids, m.selKind
+}
+
 func (m *Model) markCut() tea.Cmd {
-	switch m.col {
-	case sessionsCol:
+	if m.col == sessionsCol && len(m.selected) == 0 {
 		m.status = "a session does not move; cut its windows"
-	case windowsCol:
-		if w := m.window(); w != nil {
-			m.cut = w.ID
-			m.status = fmt.Sprintf("cut window %q; go where it belongs and press p", w.Name)
-		}
-	case panesCol:
-		if p := m.pane(); p != nil {
-			m.cut = p.ID
-			m.status = fmt.Sprintf("cut pane %q; p beside another pane moves it there, p in the windows column makes it a window", m.want.Label(*p))
-		}
+		return nil
+	}
+	ids, kind := m.marked()
+	if len(ids) == 0 {
+		return nil
+	}
+	m.cut, m.cutKind, m.selected = ids, kind, map[string]bool{}
+	what := fmt.Sprintf("%d %ss", len(ids), kinds[kind])
+	if len(ids) == 1 {
+		what = kinds[kind]
+	}
+	if kind == windowsCol {
+		m.status = fmt.Sprintf("cut %s; p in a windows column moves them there, p in a panes column moves their panes into that window", what)
+	} else {
+		m.status = fmt.Sprintf("cut %s; p in a panes column moves them there, p in a windows column makes each a window", what)
 	}
 	return nil
 }
+
+func (m *Model) isCut(id string) bool { return slices.Contains(m.cut, id) }
 
 // stackedAfter says whether a pane placed after anchor goes below it. A pane
 // splits along its longer side, counting a cell as twice as tall as it is
@@ -353,92 +424,169 @@ func insertPane(ps []tree.Pane, at int, p tree.Pane) []tree.Pane {
 	return append(out, ps[at:]...)
 }
 
+// paste puts everything cut after the cursor, in the order it was cut. The
+// target is remembered by id, the cut items are taken out, and the target is
+// found again, so taking them out never shifts where they land.
 func (m *Model) paste() {
-	if m.cut == "" {
-		m.status = "nothing is cut; x marks a window or pane"
+	if len(m.cut) == 0 {
+		m.status = "nothing is cut; x cuts the window or pane under the cursor, or everything space selected"
 		return
 	}
-	loc := m.want.Locate()
-	if from, ok := loc.Window[m.cut]; ok {
-		if m.col == panesCol {
-			if w := m.window(); w == nil || w.ID == m.cut {
-				m.status = "a window's panes join another window; put the cursor in that window's panes"
-				return
-			}
-			m.checkpoint()
-			m.joinWindow(from)
-		} else {
-			m.checkpoint()
-			m.pasteWindow(from)
-		}
-	} else if from, ok := loc.Pane[m.cut]; ok {
-		m.checkpoint()
-		m.pastePane(from)
+	if m.session() == nil {
+		return
 	}
-	m.cut = ""
+	if (m.col == windowsCol && m.cutKind == windowsCol && m.isCut(m.currentID())) ||
+		(m.col == panesCol && m.isCut(m.currentID())) {
+		m.status = "paste beside something that is not cut"
+		return
+	}
+	if m.col == panesCol && m.cutKind == windowsCol {
+		if w := m.window(); w == nil || m.isCut(w.ID) {
+			m.status = "a window's panes join another window; put the cursor in that window's panes"
+			return
+		}
+	}
+	m.checkpoint()
+	switch {
+	case m.cutKind == windowsCol && m.col == panesCol:
+		m.joinWindows()
+	case m.cutKind == windowsCol:
+		m.pasteWindows()
+	case m.col == panesCol && m.window() != nil:
+		m.pastePanes()
+	default:
+		m.panesToWindows()
+	}
+	m.cut = nil
 	m.restage()
 }
 
-// joinWindow moves every pane of the cut window into the window under the
-// cursor, after the cursor's pane. The cut window closes once they leave.
-func (m *Model) joinWindow(from [2]int) {
-	targetID := m.window().ID
-	stacked := stackedAfter(m.cursorPane())
-	src := &m.want.Sessions[from[0]]
-	moving := src.Windows[from[1]]
-	src.Windows = append(src.Windows[:from[1]:from[1]], src.Windows[from[1]+1:]...)
-	at := m.want.Locate().Window[targetID]
-	m.cur[0], m.cur[1] = at[0], at[1]
-	dst := &m.want.Sessions[at[0]].Windows[at[1]]
-	pos := 0
-	if len(dst.Panes) > 0 {
-		pos = m.cur[2] + 1
+// takeWindows removes the cut windows from the tree and returns them.
+func (m *Model) takeWindows() []tree.Window {
+	var out []tree.Window
+	for _, id := range m.cut {
+		at, ok := m.want.Locate().Window[id]
+		if !ok {
+			continue
+		}
+		s := &m.want.Sessions[at[0]]
+		out = append(out, s.Windows[at[1]])
+		s.Windows = slices.Delete(s.Windows, at[1], at[1]+1)
 	}
-	for i, p := range moving.Panes {
-		p.Stacked = stacked
-		dst.Panes = insertPane(dst.Panes, pos+i, p)
-	}
-	m.cur[2] = pos
+	return out
 }
 
-func (m *Model) pasteWindow(from [2]int) {
-	src := &m.want.Sessions[from[0]]
-	w := src.Windows[from[1]]
-	src.Windows = append(src.Windows[:from[1]:from[1]], src.Windows[from[1]+1:]...)
-	to := m.cur[0]
-	at := len(m.want.Sessions[to].Windows)
+// takePanes removes the cut panes from the tree and returns them. A window
+// they leave empty stays, marked as closing, until the plan prunes it.
+func (m *Model) takePanes() []tree.Pane {
+	var out []tree.Pane
+	for _, id := range m.cut {
+		at, ok := m.want.Locate().Pane[id]
+		if !ok {
+			continue
+		}
+		w := &m.want.Sessions[at[0]].Windows[at[1]]
+		out = append(out, w.Panes[at[2]])
+		w.Panes = slices.Delete(w.Panes, at[2], at[2]+1)
+	}
+	return out
+}
+
+// untouched reports whether a window is still the default one a new session
+// is made with: new, unnamed, holding one new untitled pane.
+func untouched(w tree.Window) bool {
+	return tree.IsNew(w.ID) && w.Name == "" && len(w.Panes) == 1 && tree.IsNew(w.Panes[0].ID) && w.Panes[0].Title == ""
+}
+
+// pasteWindows moves the cut windows into the session under the cursor:
+// after the cursor's window in the windows column, or at the end from the
+// sessions column. A new session's untouched default window gives way to
+// the first windows pasted into it.
+func (m *Model) pasteWindows() {
+	sid, after := m.session().ID, ""
 	if m.col == windowsCol {
-		at = m.cur[1] + 1
-		if to == from[0] && from[1] < at {
-			at--
+		if w := m.window(); w != nil {
+			after = w.ID
 		}
 	}
-	dst := &m.want.Sessions[to]
-	dst.Windows = insertWindow(dst.Windows, at, w)
-	m.cur[1] = at
-}
-
-func (m *Model) pastePane(from [3]int) {
-	srcWindow := &m.want.Sessions[from[0]].Windows[from[1]]
-	p := srcWindow.Panes[from[2]]
-	p.Stacked = m.col == panesCol && stackedAfter(m.cursorPane())
-	srcWindow.Panes = append(srcWindow.Panes[:from[2]:from[2]], srcWindow.Panes[from[2]+1:]...)
-	if w := m.window(); m.col == panesCol && w != nil {
-		at := m.cur[2] + 1
-		if w.ID == srcWindow.ID && from[2] < at {
-			at--
-		}
-		w.Panes = insertPane(w.Panes, at, p)
-		m.cur[2] = at
-		return
+	moving := m.takeWindows()
+	si := m.want.Locate().Session[sid]
+	s := &m.want.Sessions[si]
+	if tree.IsNew(s.ID) && len(s.Windows) == 1 && untouched(s.Windows[0]) {
+		s.Windows, after = nil, ""
 	}
-	s := m.session()
 	at := len(s.Windows)
-	if m.col == windowsCol {
-		at = m.cur[1] + 1
+	if after != "" {
+		at = m.want.Locate().Window[after][1] + 1
 	}
-	s.Windows = insertWindow(s.Windows, at, tree.Window{ID: m.newID(), Panes: []tree.Pane{p}})
-	m.cur[1], m.cur[2] = at, 0
+	s.Windows = slices.Insert(s.Windows, at, moving...)
+	m.cur = [3]int{si, at, 0}
+}
+
+// joinWindows moves every pane of the cut windows into the window under the
+// cursor, after the cursor's pane. Each cut window closes once its panes leave.
+func (m *Model) joinWindows() {
+	wid, after := m.window().ID, ""
+	if p := m.pane(); p != nil {
+		after = p.ID
+	}
+	stacked := stackedAfter(m.cursorPane())
+	var moving []tree.Pane
+	for _, w := range m.takeWindows() {
+		moving = append(moving, w.Panes...)
+	}
+	m.insertPanes(wid, after, moving, stacked)
+}
+
+// pastePanes moves the cut panes into the window under the cursor, after the
+// cursor's pane.
+func (m *Model) pastePanes() {
+	wid, after := m.window().ID, ""
+	if p := m.pane(); p != nil {
+		after = p.ID
+	}
+	stacked := stackedAfter(m.cursorPane())
+	m.insertPanes(wid, after, m.takePanes(), stacked)
+}
+
+func (m *Model) insertPanes(wid, after string, panes []tree.Pane, stacked bool) {
+	loc := m.want.Locate()
+	at := loc.Window[wid]
+	w := &m.want.Sessions[at[0]].Windows[at[1]]
+	pos := 0
+	if after != "" {
+		pos = loc.Pane[after][2] + 1
+	}
+	for i := range panes {
+		panes[i].Stacked = stacked
+	}
+	w.Panes = slices.Insert(w.Panes, pos, panes...)
+	m.cur = [3]int{at[0], at[1], pos}
+}
+
+// panesToWindows makes each cut pane a window of its own, after the cursor's
+// window, or at the end of the session from the sessions column.
+func (m *Model) panesToWindows() {
+	sid, after := m.session().ID, ""
+	if m.col == windowsCol {
+		if w := m.window(); w != nil {
+			after = w.ID
+		}
+	}
+	panes := m.takePanes()
+	si := m.want.Locate().Session[sid]
+	s := &m.want.Sessions[si]
+	at := len(s.Windows)
+	if after != "" {
+		at = m.want.Locate().Window[after][1] + 1
+	}
+	windows := make([]tree.Window, len(panes))
+	for i, p := range panes {
+		p.Stacked = false
+		windows[i] = tree.Window{ID: m.newID(), Panes: []tree.Pane{p}}
+	}
+	s.Windows = slices.Insert(s.Windows, at, windows...)
+	m.cur = [3]int{si, at, 0}
 }
 
 func (m *Model) currentName() (string, bool) {
@@ -598,21 +746,33 @@ func (m *Model) holdsSelf(id string) bool {
 	return id == m.self || id == s.ID || id == s.Windows[at[1]].ID
 }
 
+// toggleKill marks the item under the cursor, or every selected one, for
+// killing. A selection all marked already is kept instead.
 func (m *Model) toggleKill() tea.Cmd {
-	id := m.currentID()
-	if id == "" {
+	ids := []string{m.currentID()}
+	if len(m.selected) > 0 {
+		ids, _ = m.marked()
+	}
+	if ids[0] == "" {
 		return nil
 	}
-	if m.holdsSelf(id) {
-		m.status = "that holds the pane this editor runs in"
-		return nil
+	keep := true
+	for _, id := range ids {
+		if m.holdsSelf(id) {
+			m.status = "that holds the pane this editor runs in"
+			return nil
+		}
+		keep = keep && m.killed[id]
 	}
 	m.checkpoint()
-	if m.killed[id] {
-		delete(m.killed, id)
-	} else {
-		m.killed[id] = true
+	for _, id := range ids {
+		if keep {
+			delete(m.killed, id)
+		} else {
+			m.killed[id] = true
+		}
 	}
+	m.selected = map[string]bool{}
 	m.restage()
 	return nil
 }
@@ -620,7 +780,13 @@ func (m *Model) toggleKill() tea.Cmd {
 func (m *Model) shift(delta int) {
 	switch m.col {
 	case sessionsCol:
-		m.status = "tmux orders sessions itself"
+		i, j := m.cur[0], m.cur[0]+delta
+		if j < 0 || j >= len(m.want.Sessions) {
+			return
+		}
+		m.checkpoint()
+		m.want.Sessions[i], m.want.Sessions[j] = m.want.Sessions[j], m.want.Sessions[i]
+		m.cur[0] = j
 	case windowsCol:
 		s := m.session()
 		i, j := m.cur[1], m.cur[1]+delta
@@ -651,6 +817,7 @@ func (m *Model) undoLast() tea.Cmd {
 	last := m.undo[len(m.undo)-1]
 	m.undo = m.undo[:len(m.undo)-1]
 	m.want, m.killed = last.want, last.killed
+	m.clearMarks()
 	m.restage()
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,8 +55,9 @@ const (
 	fields     = 11
 )
 
-// Read lists every pane on the server, in tmux's own order: sessions, then
-// window index, then pane index.
+// Read lists every pane on the server: sessions in creation order, which is
+// the order of their ids and of choose-tree's default, then windows by index,
+// then panes by index. tmux itself lists sessions by name.
 func (c Client) Read() (tree.Tree, error) {
 	out, err := c.Run("list-panes", "-a", "-F", paneFormat)
 	if err != nil {
@@ -86,6 +88,9 @@ func (c Client) Read() (tree.Tree, error) {
 		w := &s.Windows[len(s.Windows)-1]
 		w.Panes = append(w.Panes, tree.Pane{ID: f[4], Title: f[5], Command: f[6], Path: f[7], Width: width, Height: height})
 	}
+	sort.SliceStable(t.Sessions, func(i, j int) bool {
+		return tree.SessionNumber(t.Sessions[i].ID) < tree.SessionNumber(t.Sessions[j].ID)
+	})
 	return t, nil
 }
 

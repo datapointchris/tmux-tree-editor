@@ -15,10 +15,14 @@ rm -f "$out"/panes/*.txt
 tmux display-message -p '#{host_short}' >"$out/host"
 printf '%s\n' "$HOME" >"$out/home"
 
-fields=(session_name window_id window_name window_layout pane_title pane_current_command pane_current_path pane_id)
+fields=(session_id session_name window_id window_name window_layout pane_title pane_current_command pane_current_path pane_id)
 format=$(printf '#{%s}\x1f' "${fields[@]}")
+# tmux lists sessions by name. The sandbox creates them in row order, so rows
+# are put in session id order, which is creation order: a stable sort on the
+# number after the "$" keeps each session's windows and panes in place.
 tmux list-panes -a -F "${format%$'\x1f'}" \
-  | while IFS=$'\x1f' read -r session window name layout title command path pane; do
+  | sort -s -t $'\x1f' -k1.2,1n \
+  | while IFS=$'\x1f' read -r _ session window name layout title command path pane; do
     screen=panes/${pane#%}.txt
     tmux capture-pane -p -e -t "$pane" >"$out/$screen"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$session" "$window" "$name" "$layout" "$title" "$command" "$path" "$screen"

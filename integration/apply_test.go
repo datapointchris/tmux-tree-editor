@@ -91,10 +91,11 @@ func TestAnEditAppliedToARealServerLeavesTheTreeItDescribes(t *testing.T) {
 	webPatch.Panes = append(webPatch.Panes, data.Windows[1].Panes...)
 	data.Windows = append(data.Windows[:1], webPatch)
 	data.Name = "warehouse"
-	// A new session holding a new window with a new pane.
-	want.Sessions = append(want.Sessions, tree.Session{ID: "+1", Name: "scratch", Windows: []tree.Window{
+	// A new session placed first, holding a new window with a new pane. It
+	// is created last, so both loaded sessions are rebuilt behind it.
+	want.Sessions = append([]tree.Session{{ID: "+1", Name: "scratch", Windows: []tree.Window{
 		{ID: "+2", Name: "notes", Panes: []tree.Pane{{ID: "+3", Title: "N", Path: "/tmp"}}},
-	}})
+	}}}, want.Sessions...)
 
 	steps, err := plan.Diff(base, base, want)
 	if err != nil {
@@ -119,6 +120,13 @@ func TestAnEditAppliedToARealServerLeavesTheTreeItDescribes(t *testing.T) {
 	}, "\n")
 	if shape(got) != expected {
 		t.Fatalf("after apply:\n%s\nwant:\n%s", shape(got), expected)
+	}
+	var order []string
+	for _, s := range got.Sessions {
+		order = append(order, s.Name)
+	}
+	if strings.Join(order, " ") != "scratch infra warehouse" {
+		t.Fatalf("want the sessions in the edit's order, got %v", order)
 	}
 	layout := run(t, c, "display-message", "-p", "-t", d, "#{pane_top} #{pane_left}")
 	if strings.HasPrefix(layout, "0 ") {

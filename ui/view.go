@@ -13,22 +13,23 @@ import (
 
 // Colors are palette slots rather than hex, so they follow the terminal theme.
 var (
-	accent    = lipgloss.Color("6")
-	faint     = lipgloss.NewStyle().Faint(true)
-	title     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
-	header    = lipgloss.NewStyle().Bold(true).Faint(true)
-	headerOn  = lipgloss.NewStyle().Bold(true).Foreground(accent).Underline(true)
-	cursorOn  = lipgloss.NewStyle().Bold(true).Foreground(accent).Reverse(true)
-	cursorOff = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	program   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	keySt     = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	stagedSt  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
-	killedSt  = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Strikethrough(true)
-	cutSt     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	newSt     = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	changeSt  = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	rule      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	reset     = "\x1b[0m"
+	accent     = lipgloss.Color("6")
+	faint      = lipgloss.NewStyle().Faint(true)
+	title      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
+	header     = lipgloss.NewStyle().Bold(true).Faint(true)
+	headerOn   = lipgloss.NewStyle().Bold(true).Foreground(accent).Underline(true)
+	cursorOn   = lipgloss.NewStyle().Bold(true).Foreground(accent).Reverse(true)
+	cursorOff  = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	program    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	keySt      = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	stagedSt   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
+	killedSt   = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Strikethrough(true)
+	cutSt      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	selectedSt = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
+	newSt      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	changeSt   = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	rule       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	reset      = "\x1b[0m"
 )
 
 func fit(s string, w int) string {
@@ -82,8 +83,10 @@ func (m *Model) markFor(id string, renamed, moved bool) mark {
 	switch {
 	case m.killed[id]:
 		return mark{"✗", killedSt}
-	case id == m.cut:
+	case m.isCut(id):
 		return mark{"✂", cutSt}
+	case m.selected[id]:
+		return mark{"●", selectedSt}
 	case tree.IsNew(id):
 		return mark{"+", newSt}
 	case moved:
@@ -117,15 +120,43 @@ func (m *Model) row(mk mark, text, note string, col, index, w int) string {
 func (m *Model) sessionsView(w, h int) string {
 	lines := []string{m.columnHeader(sessionsCol)}
 	lb := m.base.Locate()
+	moved := m.movedSessions()
 	for i, s := range m.want.Sessions {
 		renamed := !tree.IsNew(s.ID) && s.Name != m.base.Sessions[lb.Session[s.ID]].Name
 		note := ""
 		if len(s.Windows) == 0 {
 			note = "closes"
 		}
-		lines = append(lines, m.row(m.markFor(s.ID, renamed, false), s.Name, note, sessionsCol, i, w))
+		lines = append(lines, m.row(m.markFor(s.ID, renamed, moved[s.ID]), s.Name, note, sessionsCol, i, w))
 	}
 	return block(lines, w, h)
+}
+
+// movedSessions names the loaded sessions whose place among the other loaded
+// sessions differs from where they were.
+func (m *Model) movedSessions() map[string]bool {
+	inWant := map[string]bool{}
+	for _, s := range m.want.Sessions {
+		inWant[s.ID] = true
+	}
+	var was, now []string
+	for _, s := range m.base.Sessions {
+		if inWant[s.ID] {
+			was = append(was, s.ID)
+		}
+	}
+	for _, s := range m.want.Sessions {
+		if !tree.IsNew(s.ID) {
+			now = append(now, s.ID)
+		}
+	}
+	moved := map[string]bool{}
+	for i := range now {
+		if now[i] != was[i] {
+			moved[now[i]] = true
+		}
+	}
+	return moved
 }
 
 func (m *Model) windowsView(w, h int) string {
@@ -222,6 +253,9 @@ func (m *Model) header() string {
 	staged := faint.Render("nothing staged")
 	if m.staged > 0 {
 		staged = stagedSt.Render(fmt.Sprintf("%d staged", m.staged)) + faint.Render("  w or q shows the plan")
+	}
+	if n := len(m.selected); n > 0 {
+		staged += "  " + selectedSt.Render(fmt.Sprintf("%d %ss selected", n, kinds[m.selKind]))
 	}
 	return fit(title.Render("tmux-tree-editor")+"  "+staged, m.width)
 }
