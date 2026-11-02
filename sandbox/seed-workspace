@@ -56,4 +56,4 @@ done
 if [[ ${1:-} == --detached ]]; then
   exit 0
 fi
-exec tmux attach -t "=$attach" \; display-popup -E -w 94% -h 90% tmux-tree-editor
+exec tmux attach -t "=$attach" \; display-popup -E -w 96% -h 94% tmux-tree-editor
