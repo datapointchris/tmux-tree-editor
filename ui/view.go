@@ -332,7 +332,11 @@ func verbStyle(say string) lipgloss.Style {
 }
 
 func (m *Model) reviewView() string {
-	lines := []string{title.Render(fmt.Sprintf("apply %d changes to tmux?", plan.Shown(m.steps))), ""}
+	heading := "apply 1 change to tmux?"
+	if shown := plan.Shown(m.steps); shown != 1 {
+		heading = fmt.Sprintf("apply %d changes to tmux?", shown)
+	}
+	lines := []string{title.Render(heading), ""}
 	n, mechanics := 0, 0
 	for _, s := range m.steps {
 		switch {
@@ -343,7 +347,10 @@ func (m *Model) reviewView() string {
 			mechanics++
 		}
 	}
-	if mechanics > 0 {
+	switch {
+	case mechanics == 1:
+		lines = append(lines, "", faint.Render("  plus 1 placeholder, title or layout command around them"))
+	case mechanics > 1:
 		lines = append(lines, "", faint.Render(fmt.Sprintf("  plus %d placeholder, title and layout commands around them", mechanics)))
 	}
 	choices := keyHint("y apply") + "   " + keyHint("esc back to editing")
