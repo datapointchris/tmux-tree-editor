@@ -145,12 +145,29 @@ func (d *differ) renames() {
 				if tree.IsNew(p.ID) {
 					continue
 				}
-				if was := d.livePane(d.ll.Pane[p.ID]).Title; p.Title != was {
-					d.add(Step{Say: fmt.Sprintf("retitle pane %s to %q", p.ID, p.Title), Args: []string{"select-pane", "-t", p.ID, "-T", p.Title}, Shown: true})
+				if was := d.livePane(d.ll.Pane[p.ID]); p.Title != was.Title {
+					d.add(Step{Say: fmt.Sprintf("retitle pane %q to %q", d.live.Label(was), p.Title), Args: []string{"select-pane", "-t", p.ID, "-T", p.Title}, Shown: true})
+					d.keepTitle(p.ID)
 				}
 			}
 		}
 	}
+}
+
+// keepTitle stops the program in a pane from overwriting the title the plan
+// gave it, as shells and agents that set their own titles otherwise do at the
+// next prompt.
+func (d *differ) keepTitle(id string) {
+	d.add(Step{Say: "keep the pane's title", Args: []string{"set-option", "-p", "-t", ref(id), "allow-set-title", "off"}})
+}
+
+// paneName is how a step names a pane: its label, then what it runs.
+func (d *differ) paneName(p tree.Pane) string {
+	name := fmt.Sprintf("%q", d.want.Label(p))
+	if prog := p.Program(); prog != "" {
+		name += " (" + prog + ")"
+	}
+	return name
 }
 
 func firstPath(s tree.Session) string {
@@ -249,7 +266,7 @@ func (d *differ) windows() {
 					args = withPath(args, first.Path)
 					d.add(Step{Say: fmt.Sprintf("create window %q in session %q", w.Name, s.Name), Args: append(args, "-P", "-F", "#{window_id} #{pane_id}"), Bind: []string{ref(w.ID), ref(first.ID)}, Shown: true})
 				} else {
-					d.add(Step{Say: fmt.Sprintf("move pane %q (%s) into a new window in session %q", first.Title, first.Command, s.Name), Args: append(args, "-P", "-F", "#{window_id}"), Bind: []string{ref(w.ID)}, Shown: true})
+					d.add(Step{Say: fmt.Sprintf("move pane %s into a new window in session %q", d.paneName(first), s.Name), Args: append(args, "-P", "-F", "#{window_id}"), Bind: []string{ref(w.ID)}, Shown: true})
 				}
 			case d.live.Sessions[d.ll.Window[w.ID][0]].ID != s.ID:
 				d.add(Step{Say: fmt.Sprintf("move window %q to session %q", w.Name, s.Name), Args: []string{"move-window", "-d", "-s", w.ID, "-t", target}, Shown: true})
@@ -265,6 +282,7 @@ func (d *differ) panes() {
 				if tree.IsNew(w.ID) && i == 0 {
 					if tree.IsNew(p.ID) && p.Title != "" {
 						d.add(Step{Say: "title the new pane", Args: []string{"select-pane", "-t", ref(p.ID), "-T", p.Title}})
+						d.keepTitle(p.ID)
 					}
 					continue
 				}
@@ -282,9 +300,10 @@ func (d *differ) panes() {
 					d.add(Step{Say: fmt.Sprintf("create a pane in window %q", w.Name), Args: append(args, "-P", "-F", "#{pane_id}"), Bind: []string{ref(p.ID)}, Shown: true})
 					if p.Title != "" {
 						d.add(Step{Say: "title the new pane", Args: []string{"select-pane", "-t", ref(p.ID), "-T", p.Title}})
+						d.keepTitle(p.ID)
 					}
 				case d.windowOfLivePane(p.ID) != w.ID:
-					d.add(Step{Say: fmt.Sprintf("move pane %q (%s) into window %q", p.Title, p.Command, w.Name), Args: []string{"join-pane", "-d", split, "-s", p.ID, "-t", anchor}, Shown: true})
+					d.add(Step{Say: fmt.Sprintf("move pane %s into window %q", d.paneName(p), w.Name), Args: []string{"join-pane", "-d", split, "-s", p.ID, "-t", anchor}, Shown: true})
 				default:
 					continue
 				}
@@ -444,7 +463,9 @@ func (d *differ) kills() {
 			if _, kept := d.lw.Window[w.ID]; kept || !live || killedSession[d.live.Sessions[loc[0]].ID] {
 				continue
 			}
-			if d.allPanesFromBase(d.liveWindow(loc)) {
+			// A window whose panes moved elsewhere closes when the last one
+			// leaves; the panes it still holds, if any, are killed one by one.
+			if lw := d.liveWindow(loc); d.allPanesFromBase(lw) && !d.anyPaneKept(lw) {
 				killedWindow[w.ID] = true
 				d.add(Step{Say: fmt.Sprintf("kill window %q", w.Name), Args: []string{"kill-window", "-t", w.ID}, Guard: w.ID, Shown: true})
 			}
@@ -461,10 +482,19 @@ func (d *differ) kills() {
 				if killedSession[owner.ID] || killedWindow[owner.Windows[loc[1]].ID] {
 					continue
 				}
-				d.add(Step{Say: fmt.Sprintf("kill pane %s (%s)", p.ID, p.Command), Args: []string{"kill-pane", "-t", p.ID}, Guard: p.ID, Shown: true})
+				d.add(Step{Say: fmt.Sprintf("kill pane %s", d.paneName(d.livePane(loc))), Args: []string{"kill-pane", "-t", p.ID}, Guard: p.ID, Shown: true})
 			}
 		}
 	}
+}
+
+func (d *differ) anyPaneKept(w tree.Window) bool {
+	for _, p := range w.Panes {
+		if _, ok := d.lw.Pane[p.ID]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // allPanesFromBase reports whether killing the whole window would kill only

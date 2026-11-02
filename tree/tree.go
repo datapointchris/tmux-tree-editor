@@ -14,6 +14,8 @@ type Pane struct {
 	Title   string
 	Command string
 	Path    string
+	// Width and Height are the pane's size in cells when the editor read it.
+	Width, Height int
 	// Stacked asks for a pane joined or created below its neighbor rather
 	// than beside it. It is read only for a pane that moves or is new.
 	Stacked bool
@@ -33,13 +35,18 @@ type Session struct {
 
 type Tree struct {
 	Sessions []Session
+	// Host is the server's short host name, which tmux and most shells put in
+	// a pane's title when nothing better is there.
+	Host string
+	// Home is the server's $HOME, written as ~ in a path.
+	Home string
 }
 
 // IsNew reports whether an id is a placeholder for an item tmux has not made.
 func IsNew(id string) bool { return strings.HasPrefix(id, "+") }
 
 func (t Tree) Clone() Tree {
-	out := Tree{Sessions: make([]Session, len(t.Sessions))}
+	out := Tree{Sessions: make([]Session, len(t.Sessions)), Host: t.Host, Home: t.Home}
 	for si, s := range t.Sessions {
 		ns := Session{ID: s.ID, Name: s.Name, Windows: make([]Window, len(s.Windows))}
 		for wi, w := range s.Windows {
@@ -48,6 +55,35 @@ func (t Tree) Clone() Tree {
 		out.Sessions[si] = ns
 	}
 	return out
+}
+
+// Short writes a path under the server's home as ~.
+func (t Tree) Short(path string) string {
+	if t.Home != "" && t.Home != "/" && (path == t.Home || strings.HasPrefix(path, t.Home+"/")) {
+		return "~" + path[len(t.Home):]
+	}
+	return path
+}
+
+// Label names a pane for a person. It is the pane's title, unless the title
+// is only the host name or the "host:directory" a shell sets, which says no
+// more than the directory does.
+func (t Tree) Label(p Pane) string {
+	title := p.Title
+	if title == "" || (t.Host != "" && (title == t.Host || strings.HasPrefix(title, t.Host+":"))) {
+		return t.Short(p.Path)
+	}
+	return title
+}
+
+var shells = map[string]bool{"sh": true, "ash": true, "dash": true, "bash": true, "zsh": true, "fish": true, "ksh": true, "nu": true}
+
+// Program is what the pane runs, or "" when that is only its shell.
+func (p Pane) Program() string {
+	if shells[p.Command] {
+		return ""
+	}
+	return p.Command
 }
 
 // Locations maps every id in the tree to where it sits.

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/datapointchris/tmux-tree-editor/tree"
@@ -48,7 +49,10 @@ func withoutClientVars(env []string) []string {
 	return out
 }
 
-const paneFormat = "#{session_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_title}\t#{pane_current_command}\t#{pane_current_path}"
+const (
+	paneFormat = "#{session_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{pane_title}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_width}\t#{pane_height}\t#{host_short}"
+	fields     = 11
+)
 
 // Read lists every pane on the server, in tmux's own order: sessions, then
 // window index, then pane index.
@@ -58,14 +62,20 @@ func (c Client) Read() (tree.Tree, error) {
 		return tree.Tree{}, err
 	}
 	var t tree.Tree
+	if home, err := c.Run("show-environment", "-g", "HOME"); err == nil {
+		t.Home = strings.TrimPrefix(home, "HOME=")
+	}
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
-		f := strings.SplitN(line, "\t", 8)
-		if len(f) != 8 {
+		f := strings.SplitN(line, "\t", fields)
+		if len(f) != fields {
 			return tree.Tree{}, fmt.Errorf("unreadable list-panes line: %q", line)
 		}
+		t.Host = f[10]
+		width, _ := strconv.Atoi(f[8])
+		height, _ := strconv.Atoi(f[9])
 		if n := len(t.Sessions); n == 0 || t.Sessions[n-1].ID != f[0] {
 			t.Sessions = append(t.Sessions, tree.Session{ID: f[0], Name: f[1]})
 		}
@@ -74,14 +84,15 @@ func (c Client) Read() (tree.Tree, error) {
 			s.Windows = append(s.Windows, tree.Window{ID: f[2], Name: f[3]})
 		}
 		w := &s.Windows[len(s.Windows)-1]
-		w.Panes = append(w.Panes, tree.Pane{ID: f[4], Title: f[5], Command: f[6], Path: f[7]})
+		w.Panes = append(w.Panes, tree.Pane{ID: f[4], Title: f[5], Command: f[6], Path: f[7], Width: width, Height: height})
 	}
 	return t, nil
 }
 
-// Capture returns the last lines a pane shows, for the preview column.
+// Capture returns the last lines a pane shows, colors included, for the
+// preview column.
 func (c Client) Capture(paneID string, lines int) string {
-	out, err := c.Run("capture-pane", "-p", "-t", paneID)
+	out, err := c.Run("capture-pane", "-p", "-e", "-t", paneID)
 	if err != nil {
 		return ""
 	}
