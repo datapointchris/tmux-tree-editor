@@ -29,5 +29,8 @@ jobs:
     permissions:
       contents: write
     with:
-      runs-on: '["self-hosted","private-ci"]'
       goreleaser: true
+      # A tag exists before the module proxy has fetched it, and `go install
+      # <module>@latest` resolves through that proxy. Inside the gap it returns
+      # the previous version and exits 0, leaving the old binary in place.
+      prime-module-proxy: true
