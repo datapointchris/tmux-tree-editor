@@ -100,6 +100,12 @@ func (d *differ) holder() string {
 
 func (d *differ) liveWindow(loc [2]int) tree.Window { return d.live.Sessions[loc[0]].Windows[loc[1]] }
 
+func (d *differ) baseWindow(loc [2]int) tree.Window { return d.base.Sessions[loc[0]].Windows[loc[1]] }
+
+func (d *differ) basePane(loc [3]int) tree.Pane {
+	return d.base.Sessions[loc[0]].Windows[loc[1]].Panes[loc[2]]
+}
+
 func (d *differ) livePane(loc [3]int) tree.Pane {
 	return d.live.Sessions[loc[0]].Windows[loc[1]].Panes[loc[2]]
 }
@@ -123,12 +129,16 @@ func (d *differ) checkLive() error {
 	return nil
 }
 
+// renames runs only the names the edit changed from what was loaded. A name
+// tmux or a program changed since loading, as automatic-rename and a shell's
+// title do, is the server's and stays.
 func (d *differ) renames() {
 	for _, s := range d.want.Sessions {
 		if tree.IsNew(s.ID) {
 			continue
 		}
-		if was := d.live.Sessions[d.ll.Session[s.ID]].Name; s.Name != was {
+		loaded := d.base.Sessions[d.lb.Session[s.ID]].Name
+		if was := d.live.Sessions[d.ll.Session[s.ID]].Name; s.Name != loaded && s.Name != was {
 			d.add(Step{Say: fmt.Sprintf("rename session %q to %q", was, s.Name), Args: []string{"rename-session", "-t", s.ID, s.Name}, Shown: true})
 		}
 		for _, w := range s.Windows {
@@ -137,7 +147,7 @@ func (d *differ) renames() {
 			}
 			was := d.liveWindow(d.ll.Window[w.ID]).Name
 			switch w.Name {
-			case was:
+			case was, d.baseWindow(d.lb.Window[w.ID]).Name:
 			case "":
 				d.add(Step{Say: fmt.Sprintf("let window %q name itself", was), Args: []string{"set-window-option", "-t", w.ID, "automatic-rename", "on"}, Shown: true})
 			default:
@@ -147,7 +157,7 @@ func (d *differ) renames() {
 				if tree.IsNew(p.ID) {
 					continue
 				}
-				if was := d.livePane(d.ll.Pane[p.ID]); p.Title != was.Title {
+				if was := d.livePane(d.ll.Pane[p.ID]); p.Title != d.basePane(d.lb.Pane[p.ID]).Title && p.Title != was.Title {
 					d.add(Step{Say: fmt.Sprintf("retitle pane %q to %q", d.live.Label(was), p.Title), Args: []string{"select-pane", "-t", p.ID, "-T", p.Title}, Shown: true})
 					d.keepTitle(p.ID)
 				}

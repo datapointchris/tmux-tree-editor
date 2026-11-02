@@ -42,6 +42,20 @@ func TestAnEditPutBackStagesNothing(t *testing.T) {
 	}
 }
 
+func TestANameTmuxChangedAfterLoadingIsLeftAlone(t *testing.T) {
+	base := workspace()
+	live := base.Clone()
+	live.Sessions[0].Windows[1].Name = "nvim"
+	live.Sessions[1].Windows[0].Panes[0].Title = "✳ reviewing"
+	steps, err := Diff(base, live, base.Clone())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := Shown(steps); n != 0 {
+		t.Fatalf("reverted %d names the server changed: %v", n, commands(steps))
+	}
+}
+
 func TestAWindowMovedToAnotherSessionIsOneMove(t *testing.T) {
 	base := workspace()
 	want := base.Clone()
