@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Build a workspace shaped like a real one inside the sandbox, then attach to
+# it with the editor already open. Leaving with C-a d ends the container.
+set -euo pipefail
+
+window() {
+  local session=$1 name=$2 pane title
+  shift 2
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    pane=$(tmux new-window -d -t "=$session:" -n "$name" -c /root -P -F '#{pane_id}')
+  else
+    pane=$(tmux new-session -d -s "$session" -n "$name" -c /root -x 220 -y 60 -P -F '#{pane_id}')
+  fi
+  tmux select-pane -t "$pane" -T "$1"
+  shift
+  for title in "$@"; do
+    pane=$(tmux split-window -d -h -t "$pane" -c /tmp -P -F '#{pane_id}')
+    tmux select-pane -t "$pane" -T "$title"
+  done
+  tmux select-layout -t "$pane" even-horizontal
+}
+
+window infra "cluster upgrade" "agent: drain the old nodes" "shell: src/infra"
+window infra "review bots" "agent: review brief" "agent: test brief" "agent: docs brief"
+window infra "pr 100 review" "agent: review lead"
+window infra "diff tool" "shell: src/difftool" "shell: src/difftool"
+window infra "web patch" "shell: src/site" "shell: src/site"
+window data "pipeline coordinator" "agent: pipeline" "shell: src/pipeline"
+window data "backfill" "agent: backfill march" "agent: backfill april"
+window monitor monitor "top" "logs" "shell: src/infra"
+window sites blog "shell: src/blog"
+window sites "todo app" "shell: src/todo"
+
+if [[ ${1:-} == --detached ]]; then
+  exit 0
+fi
+exec tmux attach -t infra \; display-popup -E -w 94% -h 90% tmux-tree-editor

@@ -1,0 +1,45 @@
+version: '3'
+
+vars:
+  IMAGE: tmux-tree-editor-sandbox
+
+tasks:
+  setup:
+    desc: Download the module's dependencies
+    cmds:
+      - go mod download
+
+  build:
+    desc: Build a static binary into bin/, which the sandbox mounts
+    env:
+      CGO_ENABLED: '0'
+    cmds:
+      - go build -o bin/tmux-tree-editor .
+
+  test:
+    desc: Unit tests, which never start tmux
+    cmds:
+      - go test ./...
+
+  image:
+    desc: Build the sandbox image, which holds tmux and nothing of this repo's code
+    cmds:
+      - docker build -q -t {{.IMAGE}} sandbox
+    sources:
+      - sandbox/**
+
+  test:integration:
+    desc: Apply a plan to a real tmux server inside the sandbox container
+    deps: [image]
+    env:
+      CGO_ENABLED: '0'
+    cmds:
+      - go test -c -tags integration -o bin/integration.test ./integration
+      - docker run --rm -e TMUX_TREE_EDITOR_IN_CONTAINER=1 -v "{{.ROOT_DIR}}/bin:/opt/tte:ro" {{.IMAGE}} integration.test -test.v
+
+  sandbox:
+    desc: Open the editor on a seeded workspace inside the container; C-a d leaves and the container ends
+    deps: [image, build]
+    interactive: true
+    cmds:
+      - docker run --rm -it -v "{{.ROOT_DIR}}/bin:/opt/tte:ro" {{.IMAGE}} seed-workspace
