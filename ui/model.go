@@ -1,6 +1,6 @@
 // Package ui is the editor: three columns of sessions, windows and panes, a
 // preview of the pane under the cursor, and a staged edit that nothing applies
-// until w is pressed and the plan is confirmed.
+// until w or q shows the plan and y confirms it.
 //
 // Edits change want, a copy of the tree the editor loaded. Killing marks an id
 // rather than removing it, so a killed item stays on screen, struck through,
@@ -47,24 +47,27 @@ type snapshot struct {
 }
 
 type Model struct {
-	src     Source
-	self    string
-	base    tree.Tree
-	want    tree.Tree
-	killed  map[string]bool
-	undo    []snapshot
-	col     int
-	cur     [3]int
-	cut     string
-	mode    mode
-	input   textinput.Model
-	steps   []plan.Step
+	src    Source
+	self   string
+	base   tree.Tree
+	want   tree.Tree
+	killed map[string]bool
+	undo   []snapshot
+	col    int
+	cur    [3]int
+	cut    string
+	mode   mode
+	input  textinput.Model
+	steps  []plan.Step
+	// closing is set when the plan on screen came from q, so y applies and quits.
+	closing bool
 	staged  int
 	status  string
 	width   int
 	height  int
 	next    int
 	preview string
+	shown   *tree.Pane
 }
 
 // New loads the server. self is the pane the editor runs in, which it refuses
@@ -218,10 +221,14 @@ func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	case reviewing:
-		switch k {
-		case "y":
-			m.apply()
-		case "n", "esc", "q":
+		switch {
+		case k == "y":
+			if m.apply() && m.closing {
+				return m, tea.Quit
+			}
+		case k == "d" && m.closing:
+			return m, tea.Quit
+		case k == "n" || k == "esc" || k == "q":
 			m.mode = browsing
 		}
 		return m, nil
@@ -271,18 +278,17 @@ func init() {
 		{[]string{"G"}, "", "the last row", func(m *Model) tea.Cmd { m.move(1 << 20); return nil }},
 		{[]string{"x"}, "x cut", "cut the window or pane under the cursor", (*Model).markCut},
 		{[]string{"esc"}, "", "clear the cut", func(m *Model) tea.Cmd { m.cut = ""; return nil }},
-		{[]string{"p"}, "p/P paste", "paste after the cursor; a pane goes beside its neighbor", func(m *Model) tea.Cmd { m.paste(false); return nil }},
-		{[]string{"P"}, "", "paste a pane below its neighbor", func(m *Model) tea.Cmd { m.paste(true); return nil }},
+		{[]string{"p"}, "p paste", "paste after the cursor: a pane in the windows column becomes a window, a window in the panes column joins that window", func(m *Model) tea.Cmd { m.paste(); return nil }},
 		{[]string{"r"}, "r rename", "rename a session or window, or retitle a pane", (*Model).startRename},
 		{[]string{"a"}, "a add", "add a session, window or pane after the cursor", (*Model).startCreate},
 		{[]string{"d"}, "d kill", "mark for killing, or press again to keep", (*Model).toggleKill},
 		{[]string{"J"}, "J/K shift", "shift down within its column", func(m *Model) tea.Cmd { m.shift(1); return nil }},
 		{[]string{"K"}, "", "shift up within its column", func(m *Model) tea.Cmd { m.shift(-1); return nil }},
 		{[]string{"u"}, "u undo", "undo the last edit", (*Model).undoLast},
-		{[]string{"w"}, "w apply", "review the plan, then apply it with y", (*Model).review},
+		{[]string{"w"}, "w apply", "review the plan, then apply it with y", func(m *Model) tea.Cmd { m.closing = false; return m.review() }},
 		{[]string{"R"}, "", "reload from tmux, discarding the edit", (*Model).reload},
 		{[]string{"?"}, "? keys", "show these keys", func(m *Model) tea.Cmd { m.mode = helping; return nil }},
-		{[]string{"q"}, "q quit", "quit, asking first when anything is staged", (*Model).quit},
+		{[]string{"q"}, "q close", "close; with anything staged, show the plan to apply or discard", (*Model).quit},
 	}
 }
 
@@ -308,10 +314,29 @@ func (m *Model) markCut() tea.Cmd {
 	case panesCol:
 		if p := m.pane(); p != nil {
 			m.cut = p.ID
-			m.status = "cut pane " + p.ID + "; p pastes it beside a pane, P below, and in the windows column p makes it a window"
+			m.status = fmt.Sprintf("cut pane %q; p beside another pane moves it there, p in the windows column makes it a window", m.want.Label(*p))
 		}
 	}
 	return nil
+}
+
+// stackedAfter says whether a pane placed after anchor goes below it. A pane
+// splits along its longer side, counting a cell as twice as tall as it is
+// wide, the way dwindle tiling in bspwm or Hyprland does.
+func stackedAfter(anchor *tree.Pane) bool {
+	if anchor == nil || anchor.Width == 0 {
+		return false
+	}
+	return anchor.Width < 2*anchor.Height
+}
+
+func (m *Model) cursorPane() *tree.Pane {
+	p := m.pane()
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
 }
 
 func insertWindow(ws []tree.Window, at int, w tree.Window) []tree.Window {
@@ -328,21 +353,52 @@ func insertPane(ps []tree.Pane, at int, p tree.Pane) []tree.Pane {
 	return append(out, ps[at:]...)
 }
 
-func (m *Model) paste(stacked bool) {
+func (m *Model) paste() {
 	if m.cut == "" {
 		m.status = "nothing is cut; x marks a window or pane"
 		return
 	}
 	loc := m.want.Locate()
 	if from, ok := loc.Window[m.cut]; ok {
-		m.checkpoint()
-		m.pasteWindow(from)
+		if m.col == panesCol {
+			if w := m.window(); w == nil || w.ID == m.cut {
+				m.status = "a window's panes join another window; put the cursor in that window's panes"
+				return
+			}
+			m.checkpoint()
+			m.joinWindow(from)
+		} else {
+			m.checkpoint()
+			m.pasteWindow(from)
+		}
 	} else if from, ok := loc.Pane[m.cut]; ok {
 		m.checkpoint()
-		m.pastePane(from, stacked)
+		m.pastePane(from)
 	}
 	m.cut = ""
 	m.restage()
+}
+
+// joinWindow moves every pane of the cut window into the window under the
+// cursor, after the cursor's pane. The cut window closes once they leave.
+func (m *Model) joinWindow(from [2]int) {
+	targetID := m.window().ID
+	stacked := stackedAfter(m.cursorPane())
+	src := &m.want.Sessions[from[0]]
+	moving := src.Windows[from[1]]
+	src.Windows = append(src.Windows[:from[1]:from[1]], src.Windows[from[1]+1:]...)
+	at := m.want.Locate().Window[targetID]
+	m.cur[0], m.cur[1] = at[0], at[1]
+	dst := &m.want.Sessions[at[0]].Windows[at[1]]
+	pos := 0
+	if len(dst.Panes) > 0 {
+		pos = m.cur[2] + 1
+	}
+	for i, p := range moving.Panes {
+		p.Stacked = stacked
+		dst.Panes = insertPane(dst.Panes, pos+i, p)
+	}
+	m.cur[2] = pos
 }
 
 func (m *Model) pasteWindow(from [2]int) {
@@ -362,10 +418,10 @@ func (m *Model) pasteWindow(from [2]int) {
 	m.cur[1] = at
 }
 
-func (m *Model) pastePane(from [3]int, stacked bool) {
+func (m *Model) pastePane(from [3]int) {
 	srcWindow := &m.want.Sessions[from[0]].Windows[from[1]]
 	p := srcWindow.Panes[from[2]]
-	p.Stacked = stacked
+	p.Stacked = m.col == panesCol && stackedAfter(m.cursorPane())
 	srcWindow.Panes = append(srcWindow.Panes[:from[2]:from[2]], srcWindow.Panes[from[2]+1:]...)
 	if w := m.window(); m.col == panesCol && w != nil {
 		at := m.cur[2] + 1
@@ -460,15 +516,20 @@ func (m *Model) commitInput() {
 		return
 	}
 	m.checkpoint()
+	kind := [3]string{"session", "window", "pane"}[m.col]
 	switch {
 	case creating:
 		m.create(value)
+		m.status = fmt.Sprintf("staged a new %s %q; w or q shows the plan", kind, value)
 	case m.col == sessionsCol:
 		m.session().Name = value
 	case m.col == windowsCol:
 		m.window().Name = value
 	case m.col == panesCol:
 		m.pane().Title = value
+	}
+	if !creating {
+		m.status = fmt.Sprintf("staged: %s renamed to %q; w or q shows the plan", kind, value)
 	}
 	m.restage()
 }
@@ -511,14 +572,15 @@ func (m *Model) create(name string) {
 	case panesCol:
 		w := m.window()
 		path := ""
-		if p := m.pane(); p != nil {
-			path = p.Path
+		anchor := m.cursorPane()
+		if anchor != nil {
+			path = anchor.Path
 		}
 		at := 0
 		if len(w.Panes) > 0 {
 			at = m.cur[2] + 1
 		}
-		w.Panes = insertPane(w.Panes, at, tree.Pane{ID: m.newID(), Title: name, Path: path})
+		w.Panes = insertPane(w.Panes, at, tree.Pane{ID: m.newID(), Title: name, Path: path, Stacked: stackedAfter(anchor)})
 		m.cur[2] = at
 	}
 }
@@ -613,7 +675,8 @@ func (m *Model) review() tea.Cmd {
 	return nil
 }
 
-func (m *Model) apply() {
+// apply runs the plan on screen and reports whether every step ran.
+func (m *Model) apply() bool {
 	ran, err := plan.Apply(m.src, m.steps)
 	if t, rerr := m.src.Read(); rerr == nil {
 		m.load(t)
@@ -621,9 +684,10 @@ func (m *Model) apply() {
 	m.mode = browsing
 	if err != nil {
 		m.status = fmt.Sprintf("stopped at step %d of %d: %v", ran+1, len(m.steps), err)
-		return
+		return false
 	}
 	m.status = fmt.Sprintf("applied %d changes", plan.Shown(m.steps))
+	return true
 }
 
 func (m *Model) reload() tea.Cmd {
@@ -637,22 +701,31 @@ func (m *Model) reload() tea.Cmd {
 	return nil
 }
 
+// quit closes the editor. With an edit staged it shows the plan instead, so
+// closing applies the edit with y or drops it with d; a plan that cannot be
+// built leaves only the choice to discard.
 func (m *Model) quit() tea.Cmd {
-	if m.staged > 0 {
-		m.mode = quitting
+	if m.staged == 0 {
+		return tea.Quit
+	}
+	m.review()
+	if m.mode == reviewing {
+		m.closing = true
 		return nil
 	}
-	return tea.Quit
+	m.mode = quitting
+	return nil
 }
 
 func (m *Model) refreshPreview() {
 	var p *tree.Pane
 	if m.col == panesCol {
-		p = m.pane()
+		p = m.cursorPane()
 	} else if w := m.window(); w != nil && len(w.Panes) > 0 {
-		p = &w.Panes[0]
+		c := w.Panes[0]
+		p = &c
 	}
-	m.preview = ""
+	m.preview, m.shown = "", p
 	if p != nil && !tree.IsNew(p.ID) {
 		m.preview = m.src.Capture(p.ID, 200)
 	}

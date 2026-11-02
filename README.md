@@ -3,15 +3,19 @@
 Arrange a tmux server's sessions, windows and panes in columns, the way a
 file manager arranges files. Cut a window and paste it into another session,
 move a pane into another window, rename, add and kill. Nothing reaches tmux
-until `w` shows the plan and `y` confirms it.
+until `w` or `q` shows the plan and `y` confirms it.
 
 ```text
- sessions   │ windows · infra            │ panes · cluster upgrade │ preview
- data       │  review bots  3            │  claude  drain the old… │ ...
- monitor    │→ cluster upgrade  2        │  zsh     ~/src/infra    │
- infra      │✎ pr 100 review  1          │                         │
- sites      │  diff tool  2              │                         │
+ sessions   │ windows                    │ panes                   │ preview
+ data       │  review bots  3 panes      │  claude  drain the old… │ claude · ~/src/infra
+ monitor    │→ cluster upgrade  2 panes  │→ ~/src/infra  below     │ > drain the three…
+ infra      │✎ pr 100 review             │                         │
+ sites      │  diff tool  2 panes        │                         │
 ```
+
+A pane is named by its title, or by its directory when the title is only the
+host name or the `host:directory` a shell sets. Its program shows only when
+it is something other than a shell.
 
 ## Keys
 
@@ -19,14 +23,14 @@ until `w` shows the plan and `y` confirms it.
 | --- | --- |
 | `j` `k`, `h` `l` | move within a column, move between columns |
 | `x` | cut the window or pane under the cursor |
-| `p` | paste after the cursor. A pane goes beside its neighbor; pasted in the windows column it becomes a window of its own |
-| `P` | paste a pane below its neighbor |
+| `p` | paste after the cursor. A pane pasted in the windows column becomes a window of its own; a window pasted in the panes column moves its panes into that window |
 | `r` | rename a session or window, or retitle a pane |
 | `a` | add a session, window or pane after the cursor |
 | `d` | mark for killing, or press again to keep |
 | `J` `K` | shift a window or pane within its column |
 | `u` | undo the last edit |
 | `w` | show the plan, then `y` applies it |
+| `q` | close; with an edit staged, show the plan, then `y` applies and closes and `d` closes without applying |
 | `R` | reload from tmux, discarding the edit |
 | `?` | every key |
 
@@ -46,8 +50,13 @@ so a window or session about to lose everything gets a placeholder first and
 loses it last. That also keeps `break-pane` off a window's last pane, where
 tmux would move the whole window instead of one pane.
 
-A joined pane splits its neighbor, and the panes around it are evened with
+A pasted pane splits the pane before it along that pane's longer side,
+counting a cell as twice as tall as it is wide, as dwindle tiling does in
+bspwm and Hyprland. The panes around it are then evened with
 `select-layout -E`.
+
+A retitled pane also gets `allow-set-title off`. Shells and agents that set
+their own titles would otherwise overwrite the new one at their next prompt.
 
 ## Install and run
 
@@ -68,7 +77,15 @@ bind e display-popup -E -w 94% -h 90% tmux-tree-editor
 `task sandbox` starts a container holding its own tmux server, seeds a
 workspace of sessions, windows and titled panes, and attaches with the editor
 open. Its prefix is `C-a`, so it works inside your own tmux. `C-a e` reopens
-the editor, and `C-a d` leaves and removes the container.
+the editor, and `C-a d` leaves and removes the container. Each pane runs a
+stand-in under a program's name that prints a screen, so the preview has
+something to show.
+
+`task sandbox:mirror` seeds the container from a copy of your own layout
+instead: every session, window and pane, with each pane's title, program,
+directory, size and screen. Copying runs only `list-panes`, `capture-pane` and
+`display-message` against your server. The copy is written under
+`~/.cache/tmux-tree-editor/mirror`, and it holds whatever your panes show.
 
 ## Development
 

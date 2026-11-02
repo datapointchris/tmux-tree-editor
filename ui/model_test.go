@@ -21,7 +21,15 @@ func press(m *Model, keys ...string) {
 	}
 }
 
-func TestCuttingAWindowAndPastingItOnAnotherSessionStagesOneMove(t *testing.T) {
+func paneIDs(w tree.Window) []string {
+	var ids []string
+	for _, p := range w.Panes {
+		ids = append(ids, p.ID)
+	}
+	return ids
+}
+
+func TestPasteMovesWindowsAndPanesBetweenColumns(t *testing.T) {
 	server := fixedServer{tree.Tree{Sessions: []tree.Session{
 		{ID: "$1", Name: "data", Windows: []tree.Window{{ID: "@1", Name: "pipeline", Panes: []tree.Pane{{ID: "%1"}}}}},
 		{ID: "$2", Name: "infra", Windows: []tree.Window{
@@ -47,5 +55,22 @@ func TestCuttingAWindowAndPastingItOnAnotherSessionStagesOneMove(t *testing.T) {
 	press(m, "u")
 	if m.staged != 0 {
 		t.Fatalf("undo should leave nothing staged, got %d", m.staged)
+	}
+
+	// cluster upgrade, pasted in pipeline's panes column, joins pipeline.
+	press(m, "j", "l", "x", "h", "k", "l", "l", "p")
+	data, infra := m.want.Sessions[0], m.want.Sessions[1]
+	if got := paneIDs(data.Windows[0]); len(got) != 2 || got[1] != "%2" || len(infra.Windows) != 1 {
+		t.Fatalf("want cluster upgrade's pane inside pipeline and the window gone, got %v and %+v", got, infra.Windows)
+	}
+
+	// That pane, pasted in the windows column, becomes a window of its own.
+	press(m, "x", "h", "p")
+	data = m.want.Sessions[0]
+	if len(data.Windows) != 2 || !tree.IsNew(data.Windows[1].ID) || data.Windows[1].Panes[0].ID != "%2" {
+		t.Fatalf("want the pane in a new window after pipeline, got %+v", data.Windows)
+	}
+	if m.staged != 1 {
+		t.Fatalf("want one staged move of the pane into a new window, got %d", m.staged)
 	}
 }
