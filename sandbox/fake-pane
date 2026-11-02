@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stand in for a program in a sandbox pane: print the screen the pane should
+# show, then wait under the program's name. tmux names a pane's command after
+# its process's first argument, so the script runs itself again under that
+# name and the pane reads as the program it imitates.
+if [[ ${1:-} == --show ]]; then
+  cat -- "$2" 2>/dev/null
+  while :; do sleep 3600; done
+fi
+cmd=${1:?usage: fake-pane <command> [screen file]}
+exec -a "$cmd" bash "$0" --show "${2:-/dev/null}"

@@ -1,0 +1,13 @@
+$ git status --short --branch
+## main...origin/main [ahead 2]
+ M src/handler.go
+ M src/handler_test.go
+?? notes.md
+$ git log --oneline -4
+3f9c2a1 fix: back off between retries
+b81d07e feat: read the timeout from config
+5a2e9c4 test: cover the empty response
+e07f113 refactor: split the client from the cache
+$ go test ./...
+ok      example/src     0.412s
+$

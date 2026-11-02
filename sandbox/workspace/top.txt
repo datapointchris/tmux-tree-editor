@@ -1,0 +1,9 @@
+cpu  ▁▂▃▂▅▃▂▁▂▄▆▃▂  23%      mem  ▆▆▆▆▆▆▇▇▆▆▆▆▆  11.2 / 32.0 GiB
+load 1.21 0.98 0.77           swap 0.0 / 8.0 GiB
+
+  PID USER     CPU%  MEM%  COMMAND
+ 4120 root     31.0   2.1  postgres: checkpointer
+ 3388 root     12.4   4.8  api --port 8080
+ 3391 root      6.2   1.2  worker --queue default
+ 2210 root      1.1   0.4  nginx: worker process
+  981 root      0.3   0.1  sshd

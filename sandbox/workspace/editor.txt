@@ -1,0 +1,25 @@
+  1 package src
+  2
+  3 import (
+  4         "context"
+  5         "time"
+  6 )
+  7
+  8 // Retry calls fn until it succeeds or ctx ends, waiting longer each time.
+  9 func Retry(ctx context.Context, fn func() error) error {
+ 10         wait := 50 * time.Millisecond
+ 11         for {
+ 12                 if err := fn(); err == nil {
+ 13                         return nil
+ 14                 }
+ 15                 select {
+ 16                 case <-ctx.Done():
+ 17                         return ctx.Err()
+ 18                 case <-time.After(wait):
+ 19                 }
+ 20                 wait = min(wait*2, 5*time.Second)
+ 21         }
+ 22 }
+~
+~
+handler.go                                              12,3           All

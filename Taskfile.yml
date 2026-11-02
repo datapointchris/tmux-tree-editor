@@ -43,3 +43,16 @@ tasks:
     interactive: true
     cmds:
       - docker run --rm -it -v "{{.ROOT_DIR}}/bin:/opt/tte:ro" {{.IMAGE}} seed-workspace
+
+  sandbox:mirror:
+    desc: Open the sandbox on a copy of the tmux layout this runs under, which is only read, never changed
+    deps: [image, build]
+    interactive: true
+    vars:
+      MIRROR:
+        sh: echo "${XDG_CACHE_HOME:-$HOME/.cache}/tmux-tree-editor/mirror"
+    cmds:
+      - sandbox/mirror-host-layout "{{.MIRROR}}"
+      - >-
+        docker run --rm -it --hostname "$(cat "{{.MIRROR}}/host")" -e HOME="$(cat "{{.MIRROR}}/home")"
+        -v "{{.ROOT_DIR}}/bin:/opt/tte:ro" -v "{{.MIRROR}}:/mirror:ro" {{.IMAGE}} seed-workspace

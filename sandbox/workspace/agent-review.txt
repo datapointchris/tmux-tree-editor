@@ -1,0 +1,12 @@
+> review pull request 100 against its brief
+
+  Read the diff: 14 files, +412 −96.
+
+  Findings so far
+  1. The retry loop in client/fetch.go never backs off, so a down
+     upstream gets a request every 50 ms.
+  2. The new config key is read in two places with different defaults.
+  3. The migration adds a NOT NULL column with no default, which fails
+     on a table that already holds rows.
+
+  Checking the tests next: the suite covers the happy path only.

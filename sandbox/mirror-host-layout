@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Copy the layout of the tmux server this runs under into a directory the
+# sandbox seeds from: each pane's session, window, window layout, title,
+# command and directory, and the screen it shows. It runs only list-panes,
+# capture-pane and display-message, which read the server and start nothing.
+set -euo pipefail
+
+out=${1:?usage: mirror-host-layout <directory>}
+if ! tmux list-sessions >/dev/null 2>&1; then
+  echo "mirror-host-layout: no tmux server to copy" >&2
+  exit 1
+fi
+mkdir -p "$out/panes"
+rm -f "$out"/panes/*.txt
+tmux display-message -p '#{host_short}' >"$out/host"
+printf '%s\n' "$HOME" >"$out/home"
+
+fields=(session_name window_id window_name window_layout pane_title pane_current_command pane_current_path pane_id)
+format=$(printf '#{%s}\x1f' "${fields[@]}")
+tmux list-panes -a -F "${format%$'\x1f'}" \
+  | while IFS=$'\x1f' read -r session window name layout title command path pane; do
+    screen=panes/${pane#%}.txt
+    tmux capture-pane -p -e -t "$pane" >"$out/$screen"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$session" "$window" "$name" "$layout" "$title" "$command" "$path" "$screen"
+  done >"$out/layout.tsv"
+echo "copied $(wc -l <"$out/layout.tsv") panes into $out"

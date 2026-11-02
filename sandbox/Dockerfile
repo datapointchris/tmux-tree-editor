@@ -7,5 +7,8 @@ FROM alpine:3.22
 RUN apk add --no-cache tmux bash ncurses-terminfo-base
 ENV LANG=C.UTF-8 TERM=xterm-256color PATH=/opt/tte:$PATH
 WORKDIR /root
-COPY tmux.conf /root/.tmux.conf
-COPY seed-workspace /usr/local/bin/seed-workspace
+# The config is the system one, so a mirror that sets $HOME to the host's
+# home still loads it.
+COPY tmux.conf /etc/tmux.conf
+COPY seed-workspace fake-pane /usr/local/bin/
+COPY workspace /usr/local/share/tmux-tree-editor/workspace

@@ -1,0 +1,10 @@
+12:04:01 api     GET /health 200 1ms
+12:04:03 worker  picked job 88213 (resize-image)
+12:04:03 worker  job 88213 done in 212ms
+12:04:07 api     POST /orders 201 34ms
+12:04:09 api     GET /orders/4471 200 6ms
+12:04:12 worker  picked job 88214 (send-email)
+12:04:13 worker  job 88214 failed: smtp timeout, retry 1 of 5 in 30s
+12:04:15 api     GET /health 200 1ms
+12:04:21 db      checkpoint complete: wrote 1824 buffers
+12:04:30 api     GET /orders?page=2 200 18ms

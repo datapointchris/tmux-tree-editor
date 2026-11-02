@@ -1,37 +1,59 @@
 #!/usr/bin/env bash
-# Build a workspace shaped like a real one inside the sandbox, then attach to
-# it with the editor already open. Leaving with C-a d ends the container.
+# Build a workspace in the sandbox's tmux from a layout directory, then attach
+# with the editor open; C-a d leaves and the container ends. The directory
+# holds layout.tsv, one pane a row, and the screen each pane shows. A copy of
+# the host's own layout mounted at /mirror wins over the generic workspace.
+# --detached seeds and exits.
 set -euo pipefail
 
-window() {
-  local session=$1 name=$2 pane title
-  shift 2
-  if tmux has-session -t "=$session" 2>/dev/null; then
-    pane=$(tmux new-window -d -t "=$session:" -n "$name" -c /root -P -F '#{pane_id}')
-  else
-    pane=$(tmux new-session -d -s "$session" -n "$name" -c /root -x 220 -y 60 -P -F '#{pane_id}')
-  fi
-  tmux select-pane -t "$pane" -T "$1"
-  shift
-  for title in "$@"; do
-    pane=$(tmux split-window -d -h -t "$pane" -c /tmp -P -F '#{pane_id}')
-    tmux select-pane -t "$pane" -T "$title"
-  done
-  tmux select-layout -t "$pane" even-horizontal
-}
+dir=/usr/local/share/tmux-tree-editor/workspace
+if [[ -f /mirror/layout.tsv ]]; then
+  dir=/mirror
+fi
+mkdir -p "$HOME"
 
-window infra "cluster upgrade" "agent: drain the old nodes" "shell: src/infra"
-window infra "review bots" "agent: review brief" "agent: test brief" "agent: docs brief"
-window infra "pr 100 review" "agent: review lead"
-window infra "diff tool" "shell: src/difftool" "shell: src/difftool"
-window infra "web patch" "shell: src/site" "shell: src/site"
-window data "pipeline coordinator" "agent: pipeline" "shell: src/pipeline"
-window data "backfill" "agent: backfill march" "agent: backfill april"
-window monitor monitor "top" "logs" "shell: src/infra"
-window sites blog "shell: src/blog"
-window sites "todo app" "shell: src/todo"
+declare -A last=() first=() layout=()
+order=()
+attach=""
+while IFS= read -r line; do
+  if [[ -z $line || $line == '#'* ]]; then
+    continue
+  fi
+  # A tab is whitespace to read, which would merge an empty field into the
+  # next, so each row is split on a separator read keeps.
+  IFS=$'\x1f' read -r session key window window_layout title command path screen <<<"${line//$'\t'/$'\x1f'}"
+  path=${path:-$HOME}
+  mkdir -p "$path"
+  run=(fake-pane "${command:-sh}" "$dir/$screen")
+  if [[ -n ${last[$key]:-} ]]; then
+    pane=$(tmux split-window -d -t "${last[$key]}" -c "$path" -P -F '#{pane_id}' "${run[@]}")
+    tmux select-layout -t "$pane" tiled
+  elif tmux has-session -t "=$session" 2>/dev/null; then
+    pane=$(tmux new-window -d -t "=$session:" -n "$window" -c "$path" -P -F '#{pane_id}' "${run[@]}")
+  else
+    pane=$(tmux new-session -d -s "$session" -n "$window" -c "$path" -x 400 -y 100 -P -F '#{pane_id}' "${run[@]}")
+    attach=${attach:-$session}
+  fi
+  if [[ -z ${first[$key]:-} ]]; then
+    first[$key]=$pane
+    order+=("$key")
+  fi
+  last[$key]=$pane
+  layout[$key]=$window_layout
+  if [[ -n $title ]]; then
+    tmux select-pane -t "$pane" -T "$title"
+  fi
+done <"$dir/layout.tsv"
+
+# A mirrored row carries its window's tmux layout, which puts every pane back
+# at the size it had on the host.
+for key in "${order[@]}"; do
+  if [[ -n ${layout[$key]} ]]; then
+    tmux select-layout -t "${first[$key]}" "${layout[$key]}" 2>/dev/null || true
+  fi
+done
 
 if [[ ${1:-} == --detached ]]; then
   exit 0
 fi
-exec tmux attach -t infra \; display-popup -E -w 94% -h 90% tmux-tree-editor
+exec tmux attach -t "=$attach" \; display-popup -E -w 94% -h 90% tmux-tree-editor

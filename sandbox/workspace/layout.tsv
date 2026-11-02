@@ -1,0 +1,20 @@
+# session	window key	window	window layout	title	command	directory	screen
+infra	w1	cluster upgrade		agent: drain the old nodes	claude	/root/src/infra	agent-drain.txt
+infra	w1	cluster upgrade			zsh	/root/src/infra	shell-git.txt
+infra	w2	review bots		agent: review brief	claude	/root/src/site	agent-review.txt
+infra	w2	review bots		agent: test brief	claude	/root/src/site	agent-review.txt
+infra	w2	review bots		agent: docs brief	claude	/root/src/site	agent-review.txt
+infra	w3	pr 100 review		agent: review lead	claude	/root/src/difftool	agent-review.txt
+infra	w4	diff tool			nvim	/root/src/difftool	editor.txt
+infra	w4	diff tool			zsh	/root/src/difftool	shell-git.txt
+infra	w5	web patch			zsh	/root/src/site	shell-git.txt
+infra	w5	web patch			nvim	/root/src/site	editor.txt
+data	w6	pipeline coordinator		agent: pipeline	claude	/root/src/pipeline	agent-pipeline.txt
+data	w6	pipeline coordinator			zsh	/root/src/pipeline	shell-git.txt
+data	w7	backfill		agent: backfill march	claude	/root/src/pipeline	agent-pipeline.txt
+data	w7	backfill		agent: backfill april	claude	/root/src/pipeline	agent-pipeline.txt
+monitor	w8	monitor			btop	/root	top.txt
+monitor	w8	monitor			tail	/var/log	logs.txt
+monitor	w8	monitor			zsh	/root/src/infra	shell-git.txt
+sites	w9	blog			zsh	/root/src/blog	shell-git.txt
+sites	w10	todo app			nvim	/root/src/todo	editor.txt

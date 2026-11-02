@@ -1,0 +1,15 @@
+> drain the three old nodes before the upgrade
+
+  Listing nodes and their workloads.
+
+  node-a   Ready   12 pods   v1.30
+  node-b   Ready    9 pods   v1.30
+  node-c   Ready    4 pods   v1.30
+
+  Cordoning node-a, then evicting with a 5 minute grace period.
+  ✓ node-a drained, 12 pods rescheduled onto node-d and node-e
+  ✓ node-b drained, 9 pods rescheduled
+  … node-c draining, 1 pod waiting on its disruption budget
+
+  The last pod belongs to the queue worker, whose budget allows one
+  unavailable replica. It will move once the new replica is ready.
