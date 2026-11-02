@@ -16,8 +16,9 @@ import (
 func main() {
 	name := flag.String("L", "", "edit the tmux server on this socket name, as tmux -L takes it")
 	path := flag.String("S", "", "edit the tmux server on this socket path, as tmux -S takes it")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Usage = func() {
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `usage: tmux-tree-editor [-L name | -S path]
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `usage: tmux-tree-editor [-L name | -S path] [-version]
 
 Shows the sessions, windows and panes of a tmux server as columns. Cut, paste,
 rename, add and kill are staged; w lists the tmux commands the edit needs, and
@@ -31,6 +32,10 @@ examples:
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(currentVersion())
+		return
+	}
 
 	client := tmux.Client{}
 	self := os.Getenv("TMUX_PANE")

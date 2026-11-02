@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  # GitHub refuses a second push run while one it created sits unstarted, for
+  # up to six hours. Dispatch is not refused, so it cuts a release then.
+  workflow_dispatch:
+
+# One release at a time on this ref. A canceled release can leave a tag pushed
+# and no binaries built, so a run in flight is never canceled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+# Scoped per job rather than here: validate only reads, and it is the job that
+# runs the most third-party code.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  release:
+    needs: validate
+    uses: datapointchris/reusable-workflows/.github/workflows/go-semantic-release.yml@v1
+    permissions:
+      contents: write
+    with:
+      runs-on: '["self-hosted","private-ci"]'
+      goreleaser: true

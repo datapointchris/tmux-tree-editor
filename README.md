@@ -80,10 +80,13 @@ tmux-tree-editor               # the server this pane belongs to
 tmux-tree-editor -L scratch    # the server `tmux -L scratch` started
 ```
 
-A popup binding in `tmux.conf`:
+Each release also carries a `tmux-tree-editor_<version>_<os>_<arch>.tar.gz` for Linux and macOS
+on amd64 and arm64, for a machine that cannot reach the Go module proxy.
+
+A popup binding in `tmux.conf`, sized to leave a margin of the window behind it:
 
 ```tmux
-bind e display-popup -E -w 94% -h 90% tmux-tree-editor
+bind e display-popup -E -w 96% -h 94% tmux-tree-editor
 ```
 
 ## Trying it without touching your tmux
