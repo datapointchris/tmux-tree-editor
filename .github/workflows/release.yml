@@ -12,7 +12,6 @@ on:
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
-  queue: max
 
 # Scoped per job rather than here: validate only reads, and it is the job that
 # runs the most third-party code.
