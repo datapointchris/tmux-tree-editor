@@ -27,6 +27,8 @@ tasks:
       - docker build -q -t {{.IMAGE}} sandbox
     sources:
       - sandbox/**
+    status:
+      - docker image inspect {{.IMAGE}} >/dev/null 2>&1
 
   test:integration:
     desc: Apply a plan to a real tmux server inside the sandbox container
