@@ -101,3 +101,26 @@ func TestPasteMovesWindowsAndPanesBetweenColumns(t *testing.T) {
 		t.Fatalf("want one staged move of the pane into a new window, got %d", m.staged)
 	}
 }
+
+func TestMWalksARowThatEnterDropsAndEscPutsBack(t *testing.T) {
+	session := func(id string) tree.Session {
+		return tree.Session{ID: id, Name: id, Windows: []tree.Window{{ID: "@" + id, Name: id, Panes: []tree.Pane{{ID: "%" + id}}}}}
+	}
+	m, err := New(fixedServer{tree.Tree{Sessions: []tree.Session{session("$1"), session("$2"), session("$3")}}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.col = sessionsCol
+
+	press(m, "M", "j", "j")
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.want.Sessions[0].ID != "$1" || m.cur[0] != 0 || m.mode != browsing {
+		t.Fatalf("esc should put the row back: first is %s, cursor on %d", m.want.Sessions[0].ID, m.cur[0])
+	}
+	press(m, "M", "j")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.want.Sessions[1].ID != "$1" || m.cur[0] != 1 || m.mode != browsing {
+		t.Fatalf("enter should drop the row a place down: second is %s, cursor on %d", m.want.Sessions[1].ID, m.cur[0])
+	}
+}

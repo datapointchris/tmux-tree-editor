@@ -276,6 +276,8 @@ func (m *Model) footer() string {
 		if m.status != "" {
 			top = m.status + "; " + top
 		}
+	case moving:
+		top = "moving: j/k walk it, enter drops it, esc puts it back"
 	default:
 		top = m.status
 	}
@@ -355,7 +357,7 @@ func (m *Model) reviewView() string {
 	}
 	choices := keyHint("y apply") + "   " + keyHint("esc back to editing")
 	if m.closing {
-		choices = keyHint("y apply and close") + "   " + keyHint("d close without applying") + "   " + keyHint("esc back to editing")
+		choices = keyHint("y apply and close") + "   " + keyHint("D close without applying") + "   " + keyHint("esc back to editing")
 	}
 	lines = append(lines, "", choices)
 	return block(lines, m.width, m.height)

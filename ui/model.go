@@ -40,6 +40,7 @@ const (
 	reviewing
 	quitting
 	helping
+	moving
 )
 
 type snapshot struct {
@@ -54,8 +55,11 @@ type Model struct {
 	want   tree.Tree
 	killed map[string]bool
 	undo   []snapshot
-	col    int
-	cur    [3]int
+	// grabbedUndo and grabbedCur are where M grabbed its row, for esc to put it back.
+	grabbedUndo int
+	grabbedCur  [3]int
+	col         int
+	cur         [3]int
 	// cut holds the ids x cut, in tree order, all of the kind cutKind names.
 	cut     []string
 	cutKind int
@@ -232,7 +236,7 @@ func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.apply() && m.closing {
 				return m, tea.Quit
 			}
-		case k == "d" && m.closing:
+		case k == "D" && m.closing:
 			return m, tea.Quit
 		case k == "n" || k == "esc" || k == "q":
 			m.mode = browsing
@@ -250,6 +254,12 @@ func (m *Model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if k == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.mode == moving {
+		m.moveKey(k)
+		m.clamp()
+		m.refreshPreview()
+		return m, nil
 	}
 	for _, a := range actions {
 		for _, key := range a.keys {
@@ -280,17 +290,20 @@ func init() {
 		{[]string{"k", "up"}, "", "up a row", func(m *Model) tea.Cmd { m.move(-1); return nil }},
 		{[]string{"h", "left"}, "h/l column", "the column to the left", func(m *Model) tea.Cmd { m.col = max(m.col-1, sessionsCol); return nil }},
 		{[]string{"l", "right"}, "", "the column to the right", func(m *Model) tea.Cmd { m.col = min(m.col+1, panesCol); return nil }},
-		{[]string{"g"}, "", "the first row", func(m *Model) tea.Cmd { m.move(-1 << 20); return nil }},
-		{[]string{"G"}, "", "the last row", func(m *Model) tea.Cmd { m.move(1 << 20); return nil }},
+		{[]string{"]"}, "[/] jump", "the next session's windows, or the next window's panes", func(m *Model) tea.Cmd { m.jump(1); return nil }},
+		{[]string{"["}, "", "the previous session's windows, or the previous window's panes", func(m *Model) tea.Cmd { m.jump(-1); return nil }},
+		{[]string{"g", "home"}, "", "the first row", func(m *Model) tea.Cmd { m.move(-1 << 20); return nil }},
+		{[]string{"G", "end"}, "", "the last row", func(m *Model) tea.Cmd { m.move(1 << 20); return nil }},
+		{[]string{"ctrl+d", "pgdown"}, "", "half a screen down", func(m *Model) tea.Cmd { m.move(m.halfScreen()); return nil }},
+		{[]string{"ctrl+u", "pgup"}, "", "half a screen up", func(m *Model) tea.Cmd { m.move(-m.halfScreen()); return nil }},
 		{[]string{" ", "space"}, "space select", "select or unselect the window or pane under the cursor and move down; x and d then act on every selected one", (*Model).toggleSelect},
 		{[]string{"x"}, "x cut", "cut the window or pane under the cursor, or everything selected", (*Model).markCut},
 		{[]string{"esc"}, "", "clear the cut and the selection", (*Model).clearMarks},
 		{[]string{"p"}, "p paste", "paste after the cursor: a pane in the windows column becomes a window, a window in the panes column joins that window", func(m *Model) tea.Cmd { m.paste(); return nil }},
 		{[]string{"r"}, "r rename", "rename a session or window, or retitle a pane", (*Model).startRename},
 		{[]string{"a"}, "a add", "add a session, window or pane after the cursor", (*Model).startCreate},
-		{[]string{"d"}, "d kill", "mark for killing, or press again to keep; with a selection, every selected one", (*Model).toggleKill},
-		{[]string{"J"}, "J/K shift", "shift down within its column", func(m *Model) tea.Cmd { m.shift(1); return nil }},
-		{[]string{"K"}, "", "shift up within its column", func(m *Model) tea.Cmd { m.shift(-1); return nil }},
+		{[]string{"D"}, "D kill", "mark for killing, or press again to keep; with a selection, every selected one", (*Model).toggleKill},
+		{[]string{"M"}, "M move", "move it within its column: j and k walk it, enter drops it, esc puts it back", (*Model).grab},
 		{[]string{"u"}, "u undo", "undo the last edit", (*Model).undoLast},
 		{[]string{"w"}, "w apply", "review the plan, then apply it with y", func(m *Model) tea.Cmd { m.closing = false; return m.review() }},
 		{[]string{"R"}, "", "reload from tmux, discarding the edit", (*Model).reload},
@@ -308,6 +321,21 @@ func (m *Model) move(delta int) {
 		m.cur[2] = 0
 	}
 }
+
+// jump moves along the column to the left: the next session's windows, or the next
+// window's panes. The sessions column has no parent to jump along.
+func (m *Model) jump(delta int) {
+	switch m.col {
+	case windowsCol:
+		m.cur[0] += delta
+		m.cur[1], m.cur[2] = 0, 0
+	case panesCol:
+		m.cur[1] += delta
+		m.cur[2] = 0
+	}
+}
+
+func (m *Model) halfScreen() int { return max(1, (m.height-3)/2) }
 
 var kinds = [3]string{"session", "window", "pane"}
 
@@ -807,6 +835,33 @@ func (m *Model) shift(delta int) {
 		m.cur[2] = j
 	}
 	m.restage()
+}
+
+// grab starts moving the row under the cursor within its column.
+func (m *Model) grab() tea.Cmd {
+	if m.currentID() == "" {
+		return nil
+	}
+	m.mode, m.grabbedUndo, m.grabbedCur = moving, len(m.undo), m.cur
+	return nil
+}
+
+// moveKey walks the grabbed row with j and k. Enter drops it, and esc puts it back.
+func (m *Model) moveKey(k string) {
+	switch k {
+	case "j", "down":
+		m.shift(1)
+	case "k", "up":
+		m.shift(-1)
+	case "enter":
+		m.mode = browsing
+	case "esc":
+		for len(m.undo) > m.grabbedUndo {
+			m.undoLast()
+		}
+		m.cur = m.grabbedCur
+		m.mode = browsing
+	}
 }
 
 func (m *Model) undoLast() tea.Cmd {

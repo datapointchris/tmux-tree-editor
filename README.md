@@ -22,17 +22,19 @@ it is something other than a shell.
 | Key | Does |
 | --- | --- |
 | `j` `k`, `h` `l` | move within a column, move between columns |
+| `g` `G`, `ctrl+d` `ctrl+u` | the first and last row, half a screen |
+| `[` `]` | the previous and next session's windows, or window's panes |
 | `space` | select or unselect the window or pane under the cursor and move down, as in yazi |
 | `x` | cut the window or pane under the cursor, or everything selected |
 | `p` | paste after the cursor, in the order cut. A pane pasted in the windows column becomes a window of its own; a window pasted in the panes column moves its panes into that window; windows pasted into a new session replace its empty default window |
 | `esc` | clear the cut and the selection |
 | `r` | rename a session or window, or retitle a pane |
 | `a` | add a session, window or pane after the cursor |
-| `d` | mark for killing, or press again to keep; with a selection, every selected one |
-| `J` `K` | shift a session, window or pane within its column |
+| `D` | mark for killing, or press again to keep; with a selection, every selected one |
+| `M` | move a session, window or pane within its column: `j` `k` walk it, `enter` drops it, `esc` puts it back |
 | `u` | undo the last edit |
 | `w` | show the plan, then `y` applies it |
-| `q` | close; with an edit staged, show the plan, then `y` applies and closes and `d` closes without applying |
+| `q` | close; with an edit staged, show the plan, then `y` applies and closes and `D` closes without applying |
 | `R` | reload from tmux, discarding the edit |
 | `?` | every key |
 
@@ -58,7 +60,7 @@ tmux would move the whole window instead of one pane.
 
 tmux can neither swap nor renumber a session, and a new one is always
 created last. So a session that must sit earlier than its id allows, after
-`J`, `K` or a new session added mid-list, is rebuilt: a fresh session takes
+`M` or a new session added mid-list, is rebuilt: a fresh session takes
 its attached clients, then its windows, then its name. Once one session is
 rebuilt, every session after it is too, because the fresh id is higher than
 any it passed. Windows and panes keep running through it. Options and
