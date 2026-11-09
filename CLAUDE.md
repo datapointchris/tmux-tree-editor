@@ -21,6 +21,28 @@ its first process exits, so none of that can happen there.
   Without `-L` or `-S` it edits the server it runs inside, which is the
   user's.
 
+## Never write the breaking-change trailer in a commit message
+
+The words `BREAKING CHANGE` — either number, colon or not, subject or body — cut a major release
+here, and a major on this repo is an outage rather than a version. `commit-analyzer-cz` matches
+them unanchored against the raw message and ORs the result with the configured major rules, so
+`.semrelrc` cannot stop it and it majors even a `fix:` commit.
+
+The module path carries no `/vN` suffix, so once a major exists `go install …@latest` cannot see it
+and silently resolves the highest v1 instead. An installer comparing versions then reports the tool
+stale forever while installing nothing.
+
+**The ban covers a commit that merely discusses the trailer.** Name it some other way — "that
+marker" — and never quote it.
+
+Deliberate majors use `chore(release-major)`, the one subject `.semrelrc` leaves as a major. The
+release carrying one also adds the `/vN` suffix to the module path, so
+`go install github.com/datapointchris/tmux-tree-editor/vN@latest` resolves the tag.
+
+After an accidental major, delete the vN releases and their tags, then tag a baseline on `main`
+above the offending commit, or the next push cuts the major again. `go list -m
+github.com/datapointchris/tmux-tree-editor@latest` answering the v1 tag confirms it.
+
 ## Where things are
 
 - `tree/` is the model, keyed by tmux's own ids. An item the editor will
