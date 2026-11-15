@@ -4,6 +4,12 @@ vars:
   IMAGE: tmux-tree-editor-sandbox
 
 tasks:
+  default:
+    desc: List the tasks
+    silent: true
+    cmds:
+      - task --list
+
   setup:
     desc: Download the module's dependencies
     cmds:
