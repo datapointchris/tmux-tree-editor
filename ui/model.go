@@ -8,9 +8,11 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,8 +23,18 @@ import (
 
 type Source interface {
 	plan.Runner
-	Read() (tree.Tree, error)
-	Capture(paneID string, lines int) string
+	Read(ctx context.Context) (tree.Tree, error)
+	Capture(ctx context.Context, paneID string, lines int) string
+}
+
+// tmuxTimeout bounds the tmux calls of one action. A server that has not
+// answered by then is wedged, and the editor reports it rather than freezing.
+const tmuxTimeout = 30 * time.Second
+
+// tmuxContext is one action's context. Update takes none, so each action that
+// reaches tmux makes its own.
+func tmuxContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), tmuxTimeout)
 }
 
 const (
@@ -83,7 +95,9 @@ type Model struct {
 // New loads the server. self is the pane the editor runs in, which it refuses
 // to kill; it is empty when the editor drives another server.
 func New(src Source, self string) (*Model, error) {
-	t, err := src.Read()
+	ctx, cancel := tmuxContext()
+	defer cancel()
+	t, err := src.Read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -878,7 +892,9 @@ func (m *Model) undoLast() tea.Cmd {
 }
 
 func (m *Model) review() tea.Cmd {
-	live, err := m.src.Read()
+	ctx, cancel := tmuxContext()
+	defer cancel()
+	live, err := m.src.Read(ctx)
 	if err != nil {
 		m.status = err.Error()
 		return nil
@@ -899,8 +915,10 @@ func (m *Model) review() tea.Cmd {
 
 // apply runs the plan on screen and reports whether every step ran.
 func (m *Model) apply() bool {
-	ran, err := plan.Apply(m.src, m.steps)
-	if t, rerr := m.src.Read(); rerr == nil {
+	ctx, cancel := tmuxContext()
+	defer cancel()
+	ran, err := plan.Apply(ctx, m.src, m.steps)
+	if t, rerr := m.src.Read(ctx); rerr == nil {
 		m.load(t)
 	}
 	m.mode = browsing
@@ -913,7 +931,9 @@ func (m *Model) apply() bool {
 }
 
 func (m *Model) reload() tea.Cmd {
-	t, err := m.src.Read()
+	ctx, cancel := tmuxContext()
+	defer cancel()
+	t, err := m.src.Read(ctx)
 	if err != nil {
 		m.status = err.Error()
 		return nil
@@ -949,6 +969,8 @@ func (m *Model) refreshPreview() {
 	}
 	m.preview, m.shown = "", p
 	if p != nil && !tree.IsNew(p.ID) {
-		m.preview = m.src.Capture(p.ID, 200)
+		ctx, cancel := tmuxContext()
+		defer cancel()
+		m.preview = m.src.Capture(ctx, p.ID, 200)
 	}
 }

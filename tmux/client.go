@@ -9,6 +9,7 @@ package tmux
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,8 +26,8 @@ type Client struct {
 	Socket []string
 }
 
-func (c Client) Run(args ...string) (string, error) {
-	cmd := exec.Command("tmux", append(append([]string{}, c.Socket...), args...)...)
+func (c Client) Run(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", append(append([]string{}, c.Socket...), args...)...)
 	if len(c.Socket) > 0 {
 		cmd.Env = withoutClientVars(os.Environ())
 	}
@@ -58,13 +59,13 @@ const (
 // Read lists every pane on the server: sessions in creation order, which is
 // the order of their ids and of choose-tree's default, then windows by index,
 // then panes by index. tmux itself lists sessions by name.
-func (c Client) Read() (tree.Tree, error) {
-	out, err := c.Run("list-panes", "-a", "-F", paneFormat)
+func (c Client) Read(ctx context.Context) (tree.Tree, error) {
+	out, err := c.Run(ctx, "list-panes", "-a", "-F", paneFormat)
 	if err != nil {
 		return tree.Tree{}, err
 	}
 	var t tree.Tree
-	if home, err := c.Run("show-environment", "-g", "HOME"); err == nil {
+	if home, err := c.Run(ctx, "show-environment", "-g", "HOME"); err == nil {
 		t.Home = strings.TrimPrefix(home, "HOME=")
 	}
 	for _, line := range strings.Split(out, "\n") {
@@ -96,8 +97,8 @@ func (c Client) Read() (tree.Tree, error) {
 
 // Capture returns the last lines a pane shows, colors included, for the
 // preview column.
-func (c Client) Capture(paneID string, lines int) string {
-	out, err := c.Run("capture-pane", "-p", "-e", "-t", paneID)
+func (c Client) Capture(ctx context.Context, paneID string, lines int) string {
+	out, err := c.Run(ctx, "capture-pane", "-p", "-e", "-t", paneID)
 	if err != nil {
 		return ""
 	}

@@ -6,6 +6,7 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,7 @@ import (
 
 func run(t *testing.T, c tmux.Client, args ...string) string {
 	t.Helper()
-	out, err := c.Run(args...)
+	out, err := c.Run(t.Context(), args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,8 @@ func TestAnEditAppliedToARealServerLeavesTheTreeItDescribes(t *testing.T) {
 		t.Skip("runs only inside the sandbox container: task test:integration")
 	}
 	c := tmux.Client{Socket: []string{"-S", filepath.Join(t.TempDir(), "s")}}
-	t.Cleanup(func() { _, _ = c.Run("kill-server") })
+	// t.Context() is canceled before cleanups run.
+	t.Cleanup(func() { _, _ = c.Run(context.Background(), "kill-server") })
 
 	a := run(t, c, "new-session", "-d", "-s", "infra", "-n", "cluster upgrade", "-x", "200", "-y", "50", "-P", "-F", "#{pane_id}")
 	run(t, c, "select-pane", "-t", a, "-T", "A")
@@ -64,7 +66,7 @@ func TestAnEditAppliedToARealServerLeavesTheTreeItDescribes(t *testing.T) {
 	f := run(t, c, "split-window", "-d", "-h", "-t", e, "-P", "-F", "#{pane_id}")
 	run(t, c, "select-pane", "-t", f, "-T", "F")
 
-	base, err := c.Read()
+	base, err := c.Read(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,10 +108,10 @@ func TestAnEditAppliedToARealServerLeavesTheTreeItDescribes(t *testing.T) {
 			t.Fatalf("a window emptied by moves closes on its own, but the plan says %q", s.Say)
 		}
 	}
-	if _, err := plan.Apply(c, steps); err != nil {
+	if _, err := plan.Apply(t.Context(), c, steps); err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.Read()
+	got, err := c.Read(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

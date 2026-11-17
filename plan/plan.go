@@ -17,6 +17,7 @@
 package plan
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -24,7 +25,7 @@ import (
 )
 
 type Runner interface {
-	Run(args ...string) (string, error)
+	Run(ctx context.Context, args ...string) (string, error)
 }
 
 type Step struct {
@@ -41,7 +42,7 @@ type Step struct {
 	// Shown is false for mechanics nobody asked for, such as placeholders.
 	Shown bool
 	// Do is a step that reads tmux while it runs, such as a reorder.
-	Do func(r Runner, resolve func(string) string) error
+	Do func(ctx context.Context, r Runner, resolve func(string) string) error
 }
 
 const placeholderName = "tmux-tree-editor-placeholder"
@@ -402,14 +403,14 @@ func lines(out string) []string {
 // closes, then its windows by id, in index order, then its name. The
 // windows and their panes keep running; session options and environment
 // set on the old session are not carried.
-func rebuild(id, name string) func(Runner, func(string) string) error {
-	return func(r Runner, resolve func(string) string) error {
+func rebuild(id, name string) func(context.Context, Runner, func(string) string) error {
+	return func(ctx context.Context, r Runner, resolve func(string) string) error {
 		old := resolve(id)
-		current, err := r.Run("display-message", "-p", "-t", old, "#{window_id}")
+		current, err := r.Run(ctx, "display-message", "-p", "-t", old, "#{window_id}")
 		if err != nil {
 			return err
 		}
-		out, err := r.Run("new-session", "-d", "-s", rebuildName, "-n", placeholderName, "-P", "-F", "#{session_id} #{window_id}")
+		out, err := r.Run(ctx, "new-session", "-d", "-s", rebuildName, "-n", placeholderName, "-P", "-F", "#{session_id} #{window_id}")
 		if err != nil {
 			return err
 		}
@@ -418,21 +419,21 @@ func rebuild(id, name string) func(Runner, func(string) string) error {
 			return fmt.Errorf("tmux printed %q, expected a session and a window id", out)
 		}
 		fresh, holder := fields[0], fields[1]
-		clients, err := r.Run("list-clients", "-t", old, "-F", "#{client_name}")
+		clients, err := r.Run(ctx, "list-clients", "-t", old, "-F", "#{client_name}")
 		if err != nil {
 			return err
 		}
 		for _, c := range lines(clients) {
-			if _, err := r.Run("switch-client", "-c", c, "-t", fresh); err != nil {
+			if _, err := r.Run(ctx, "switch-client", "-c", c, "-t", fresh); err != nil {
 				return err
 			}
 		}
-		windows, err := r.Run("list-windows", "-t", old, "-F", "#{window_id}")
+		windows, err := r.Run(ctx, "list-windows", "-t", old, "-F", "#{window_id}")
 		if err != nil {
 			return err
 		}
 		for _, w := range lines(windows) {
-			if _, err := r.Run("move-window", "-d", "-s", w, "-t", fresh+":"); err != nil {
+			if _, err := r.Run(ctx, "move-window", "-d", "-s", w, "-t", fresh+":"); err != nil {
 				return err
 			}
 		}
@@ -441,7 +442,7 @@ func rebuild(id, name string) func(Runner, func(string) string) error {
 			{"rename-session", "-t", fresh, name},
 			{"select-window", "-t", current},
 		} {
-			if _, err := r.Run(args...); err != nil {
+			if _, err := r.Run(ctx, args...); err != nil {
 				return err
 			}
 		}
@@ -494,9 +495,9 @@ func paneIDs(ps []tree.Pane) []string {
 // reorder puts the items it manages into the wanted order inside the slots
 // they already occupy, swapping by id. Items it does not manage, such as a
 // placeholder or a window opened elsewhere, keep their slots.
-func reorder(list, format, swap, parent string, want []string) func(Runner, func(string) string) error {
-	return func(r Runner, resolve func(string) string) error {
-		out, err := r.Run(list, "-t", resolve(parent), "-F", format)
+func reorder(list, format, swap, parent string, want []string) func(context.Context, Runner, func(string) string) error {
+	return func(ctx context.Context, r Runner, resolve func(string) string) error {
+		out, err := r.Run(ctx, list, "-t", resolve(parent), "-F", format)
 		if err != nil {
 			return err
 		}
@@ -528,7 +529,7 @@ func reorder(list, format, swap, parent string, want []string) func(Runner, func
 			if at == id {
 				continue
 			}
-			if _, err := r.Run(swap, "-d", "-s", id, "-t", at); err != nil {
+			if _, err := r.Run(ctx, swap, "-d", "-s", id, "-t", at); err != nil {
 				return err
 			}
 			for i, c := range current {
@@ -617,8 +618,8 @@ func (d *differ) allPanesFromBase(w tree.Window) bool {
 // present reports whether a session, window or pane id is on the server.
 // display-message cannot answer this: it resolves its target with
 // CMD_FIND_CANFAIL, so a missing pane falls back to another rather than failing.
-func present(r Runner, id string) bool {
-	out, err := r.Run("list-panes", "-a", "-F", "#{session_id} #{window_id} #{pane_id}")
+func present(ctx context.Context, r Runner, id string) bool {
+	out, err := r.Run(ctx, "list-panes", "-a", "-F", "#{session_id} #{window_id} #{pane_id}")
 	if err != nil {
 		return false
 	}
@@ -632,7 +633,7 @@ func present(r Runner, id string) bool {
 
 // Apply runs the steps in order and stops at the first failure, returning how
 // many ran.
-func Apply(r Runner, steps []Step) (int, error) {
+func Apply(ctx context.Context, r Runner, steps []Step) (int, error) {
 	refs := map[string]string{}
 	resolve := func(arg string) string {
 		if !strings.HasPrefix(arg, "{") {
@@ -648,11 +649,11 @@ func Apply(r Runner, steps []Step) (int, error) {
 		return arg
 	}
 	for i, st := range steps {
-		if st.Guard != "" && !present(r, resolve(st.Guard)) {
+		if st.Guard != "" && !present(ctx, r, resolve(st.Guard)) {
 			continue
 		}
 		if st.Do != nil {
-			if err := st.Do(r, resolve); err != nil {
+			if err := st.Do(ctx, r, resolve); err != nil {
 				return i, fmt.Errorf("%s: %w", st.Say, err)
 			}
 			continue
@@ -661,7 +662,7 @@ func Apply(r Runner, steps []Step) (int, error) {
 		for k, a := range st.Args {
 			args[k] = resolve(a)
 		}
-		out, err := r.Run(args...)
+		out, err := r.Run(ctx, args...)
 		if err != nil {
 			return i, fmt.Errorf("%s: %w", st.Say, err)
 		}

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,9 +11,9 @@ import (
 
 type fixedServer struct{ t tree.Tree }
 
-func (f fixedServer) Read() (tree.Tree, error)      { return f.t.Clone(), nil }
-func (f fixedServer) Run(...string) (string, error) { return "", nil }
-func (f fixedServer) Capture(string, int) string    { return "" }
+func (f fixedServer) Read(context.Context) (tree.Tree, error)        { return f.t.Clone(), nil }
+func (f fixedServer) Run(context.Context, ...string) (string, error) { return "", nil }
+func (f fixedServer) Capture(context.Context, string, int) string    { return "" }
 
 func press(m *Model, keys ...string) {
 	for _, k := range keys {
