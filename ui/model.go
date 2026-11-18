@@ -313,7 +313,7 @@ func init() {
 		{[]string{" ", "space"}, "space select", "select or unselect the window or pane under the cursor and move down; x and d then act on every selected one", (*Model).toggleSelect},
 		{[]string{"x"}, "x cut", "cut the window or pane under the cursor, or everything selected", (*Model).markCut},
 		{[]string{"esc"}, "", "clear the cut and the selection", (*Model).clearMarks},
-		{[]string{"p"}, "p paste", "paste after the cursor: a pane in the windows column becomes a window, a window in the panes column joins that window", func(m *Model) tea.Cmd { m.paste(); return nil }},
+		{[]string{"P"}, "P paste", "paste after the cursor: a pane in the windows column becomes a window, a window in the panes column joins that window", func(m *Model) tea.Cmd { m.paste(); return nil }},
 		{[]string{"r"}, "r rename", "rename a session or window, or retitle a pane", (*Model).startRename},
 		{[]string{"a"}, "a add", "add a session, window or pane after the cursor", (*Model).startCreate},
 		{[]string{"D"}, "D kill", "mark for killing, or press again to keep; with a selection, every selected one", (*Model).toggleKill},

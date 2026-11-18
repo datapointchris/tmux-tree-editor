@@ -38,7 +38,7 @@ func TestSelectedWindowsPasteIntoANewSessionInPlaceOfItsDefaultWindow(t *testing
 
 	press(m, "a", "scratch")
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	press(m, "j", "l", " ", " ", "x", "h", "k", "p")
+	press(m, "j", "l", " ", " ", "x", "h", "k", "P")
 
 	scratch := m.want.Sessions[1]
 	if scratch.Name != "scratch" || len(scratch.Windows) != 2 || scratch.Windows[0].ID != "@2" || scratch.Windows[1].ID != "@3" {
@@ -71,7 +71,7 @@ func TestPasteMovesWindowsAndPanesBetweenColumns(t *testing.T) {
 	}
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
-	press(m, "j", "l", "j", "x", "h", "k", "p")
+	press(m, "j", "l", "j", "x", "h", "k", "P")
 
 	if m.staged != 1 {
 		t.Fatalf("want one staged move, got %d", m.staged)
@@ -86,14 +86,14 @@ func TestPasteMovesWindowsAndPanesBetweenColumns(t *testing.T) {
 	}
 
 	// cluster upgrade, pasted in pipeline's panes column, joins pipeline.
-	press(m, "j", "l", "x", "h", "k", "l", "l", "p")
+	press(m, "j", "l", "x", "h", "k", "l", "l", "P")
 	data, infra := m.want.Sessions[0], m.want.Sessions[1]
 	if got := paneIDs(data.Windows[0]); len(got) != 2 || got[1] != "%2" || len(infra.Windows) != 1 {
 		t.Fatalf("want cluster upgrade's pane inside pipeline and the window gone, got %v and %+v", got, infra.Windows)
 	}
 
 	// That pane, pasted in the windows column, becomes a window of its own.
-	press(m, "x", "h", "p")
+	press(m, "x", "h", "P")
 	data = m.want.Sessions[0]
 	if len(data.Windows) != 2 || !tree.IsNew(data.Windows[1].ID) || data.Windows[1].Panes[0].ID != "%2" {
 		t.Fatalf("want the pane in a new window after pipeline, got %+v", data.Windows)

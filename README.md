@@ -26,7 +26,7 @@ it is something other than a shell.
 | `[` `]` | the previous and next session's windows, or window's panes |
 | `space` | select or unselect the window or pane under the cursor and move down, as in yazi |
 | `x` | cut the window or pane under the cursor, or everything selected |
-| `p` | paste after the cursor, in the order cut. A pane pasted in the windows column becomes a window of its own; a window pasted in the panes column moves its panes into that window; windows pasted into a new session replace its empty default window |
+| `P` | paste after the cursor, in the order cut. A pane pasted in the windows column becomes a window of its own; a window pasted in the panes column moves its panes into that window; windows pasted into a new session replace its empty default window |
 | `esc` | clear the cut and the selection |
 | `r` | rename a session or window, or retitle a pane |
 | `a` | add a session, window or pane after the cursor |
