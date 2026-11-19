@@ -52,11 +52,13 @@ tmux taken when `w` is pressed, and the edit. It refuses when something the
 edit names has gone since loading. It kills only what was loaded and then
 removed, so a window opened elsewhere while the editor was up survives.
 
-Commands run in a fixed order: renames, creations, moves, reordering, kills.
-tmux closes a window with its last pane and a session with its last window,
-so a window or session about to lose everything gets a placeholder first and
-loses it last. That also keeps `break-pane` off a window's last pane, where
-tmux would move the whole window instead of one pane.
+Commands run in a fixed order: renames, creations, moves, window and pane
+reordering, kills, removal of the placeholders, then rebuilding the sessions
+that must move later in the creation order. tmux closes a window with its
+last pane and a session with its last window, so a window or session about
+to lose everything gets a placeholder first and loses it last. That also
+keeps `break-pane` off a window's last pane, where tmux would move the whole
+window instead of one pane.
 
 tmux can neither swap nor renumber a session, and a new one is always
 created last. So a session that must sit earlier than its id allows, after
