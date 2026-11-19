@@ -104,8 +104,8 @@ something to show.
 
 `task sandbox:mirror` seeds the container from a copy of your own layout
 instead: every session, window and pane, with each pane's title, program,
-directory, size and screen. Copying runs only `list-panes`, `capture-pane` and
-`display-message` against your server. The copy is written under
+directory, size and screen. Copying runs only `list-sessions`, `list-panes`,
+`capture-pane` and `display-message` against your server. The copy is written under
 `~/.cache/tmux-tree-editor/mirror`, and it holds whatever your panes show.
 
 ## Development

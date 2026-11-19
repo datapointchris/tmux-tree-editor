@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Copy the layout of the tmux server this runs under into a directory the
 # sandbox seeds from: each pane's session, window, window layout, title,
-# command and directory, and the screen it shows. It runs only list-panes,
-# capture-pane and display-message, which read the server and start nothing.
+# command and directory, and the screen it shows. It runs only list-sessions,
+# list-panes, capture-pane and display-message, which read the server and
+# start nothing.
 set -euo pipefail
 
 out=${1:?usage: mirror-host-layout <directory>}
